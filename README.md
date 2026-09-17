@@ -27,10 +27,16 @@ uv run python -m job_crawler topcv               # (cần google-chrome trên ho
 
 ## Dashboard
 
+Frontend: **React 19 + Vite + TS + Tailwind v4 + Recharts** (KPI, trend theo ngày, phân bố category/exp/lương, search + sidebar filter + pagination).
+
 ```bash
-uv run uvicorn dashboard.main:app --port 8130
-# http://localhost:8130  — stats + filter (nguồn/category/tag/từ khoá)
-# API: /api/jobs?limit=100&source=topcv&q=java · /api/stats
+# dev frontend (hot reload, proxy /api → :8130)
+cd frontend && npm install && npm run dev     # :5173
+
+# build → FastAPI serve SPA luôn tại :8130
+cd frontend && npm run build
+uv run uvicorn dashboard.main:app --port 8130 # http://localhost:8130
+# API: /api/jobs (q, source, category, exp, tag, since_hours, sort, page/offset) · /api/stats · /api/meta · /api/trend
 ```
 
 ## Windmill (điều phối — tạo mới cho dự án này)
