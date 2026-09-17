@@ -5,3 +5,4 @@ data/
 recon/
 .env
 nohup.out
+frontend/dist/
