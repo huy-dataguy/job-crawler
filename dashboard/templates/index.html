@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full bg-slate-50">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Crawler — HCMC IT Jobs</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="h-full text-slate-800">
+<main class="max-w-7xl mx-auto p-6">
+  <h1 class="text-2xl font-bold mb-1">💼 IT Jobs HCMC — Dashboard</h1>
+  <p class="text-sm text-slate-500 mb-6">Nguồn: itviec + topcv · auto-crawl 9h / 11h / 14h / 16h / 21h hàng ngày</p>
+
+  <!-- Stats -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow p-4"><div class="text-3xl font-bold">{{ stats['total'] }}</div><div class="text-xs text-slate-500">Tổng job</div></div>
+    <div class="bg-white rounded-xl shadow p-4"><div class="text-3xl font-bold text-emerald-600">{{ stats['new24h'] }}</div><div class="text-xs text-slate-500">Mới trong 24h</div></div>
+    <div class="bg-white rounded-xl shadow p-4"><div class="text-3xl font-bold">{{ stats['active'] }}</div><div class="text-xs text-slate-500">Còn active</div></div>
+    <div class="bg-white rounded-xl shadow p-4"><div class="text-3xl font-bold text-indigo-600">{{ stats['new_flag'] }}</div><div class="text-xs text-slate-500">Chưa xem lần nào</div></div>
+  </div>
+
+  <!-- Phân loại -->
+  <div class="grid md:grid-cols-2 gap-4 mb-6">
+    <div class="bg-white rounded-xl shadow p-4">
+      <h2 class="font-semibold mb-2">Nguồn</h2>
+      {% for s in by_source %}
+      <a href="/?source={{ s['source'] }}" class="text-blue-600 hover:underline mr-4">{{ s['source'] }}: {{ s['n'] }}</a>
+      {% endfor %}
+      <a href="/" class="text-slate-400 ml-2 text-sm">(xem tất cả)</a>
+    </div>
+    <div class="bg-white rounded-xl shadow p-4">
+      <h2 class="font-semibold mb-2">Top categories (itviec)</h2>
+      <div class="flex flex-wrap gap-2">
+        {% for c in by_category %}
+        <a href="/?category={{ c['category'] | urlencode }}" class="px-2 py-1 text-xs bg-slate-100 hover:bg-blue-100 rounded-full">{{ c['category'] }} <span class="text-slate-400">{{ c['n'] }}</span></a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <form method="get" class="flex flex-wrap gap-2 mb-4 bg-white rounded-xl shadow p-4">
+    <input name="q" value="{{ q }}" placeholder="Tìm title / công ty…" class="border rounded px-3 py-2 flex-1 min-w-40">
+    <select name="source" class="border rounded px-3 py-2">
+      <option value="">Tất cả nguồn</option>
+      <option value="itviec" {% if source=='itviec' %}selected{% endif %}>itviec</option>
+      <option value="topcv" {% if source=='topcv' %}selected{% endif %}>topcv</option>
+    </select>
+    <input name="tag" value="{{ tag }}" placeholder="Tag (vd: Java)" class="border rounded px-3 py-2 w-40">
+    <button class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Lọc</button>
+    <a href="/" class="px-4 py-2 text-slate-500">Reset</a>
+  </form>
+
+  <!-- Bảng jobs -->
+  <div class="bg-white rounded-xl shadow overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-100 text-left text-xs uppercase text-slate-500">
+        <tr><th class="px-4 py-3">Đăng</th><th class="px-2 py-3">Title</th><th class="px-2 py-3">Công ty</th><th class="px-2 py-3">Lương</th><th class="px-2 py-3">Kinh nghiệm</th><th class="px-2 py-3">Tags</th><th class="px-2 py-3">Nguồn</th></tr>
+      </thead>
+      <tbody>
+        {% for j in jobs %}
+        <tr class="border-t {% if j['is_new'] %}bg-yellow-50{% endif %} hover:bg-slate-50">
+          <td class="px-4 py-3 whitespace-nowrap text-slate-500">{{ (j['posted_at'] or '')[:10] }}</td>
+          <td class="px-2 py-3 max-w-md truncate">
+            <a href="{{ j['url'] }}" target="_blank" class="font-medium text-blue-700 hover:underline">{{ j['title'] }}</a>
+          </td>
+          <td class="px-2 py-3 text-slate-600">{{ j['company'] }}</td>
+          <td class="px-2 py-3 whitespace-nowrap">{{ j['salary'] or '—' }}</td>
+          <td class="px-2 py-3 whitespace-nowrap text-slate-600">{{ j['experience'] or (j['category'] or '—') }}</td>
+          <td class="px-2 py-3 text-xs text-slate-500 max-w-56 truncate">{{ (j['tags'] or '')[:80] }}</td>
+          <td class="px-2 py-3"><span class="px-2 py-0.5 rounded-full text-xs {% if j['source']=='itviec' %}bg-orange-100 text-orange-700{% else %}bg-rose-100 text-rose-700{% endif %}">{{ j['source'] }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-slate-400 mt-4">API: <code>/api/jobs?limit=100</code> · <code>/api/stats</code> — data clean, không lưu raw HTML.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,73 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options: { max-size: "20m", max-file: "5" }
+
+services:
+  db:
+    image: postgres:16
+    shm_size: 1g
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    expose: ["5432"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [windmill-network]
+
+  windmill_server:
+    image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill:main}
+    pull_policy: missing
+    restart: unless-stopped
+    expose: ["8000"]
+    ports:
+      - "${WM_PORT:-8131}:8000"   # Windmill UI: http://localhost:8131
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=server
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@jobcrawler.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+    depends_on:
+      db: { condition: service_healthy }
+    volumes:
+      - ../data:/data            # SQLite job_crawler.db nằm ở ../data của repo
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/version || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks: [windmill-network]
+
+  # Worker chạy crawl: image có sẵn Playwright/Chromium (cho TopCV vượt Cloudflare)
+  windmill_worker_jobcrawl:
+    image: heronq02/windmill-worker:latest
+    pull_policy: missing
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=jobcrawl
+      - WORKER_TAGS=jobcrawl,python3
+      # Chrome trong Windmill worker chạy ở home worker, override để chỉ về chromium của image
+      - HOME=/root
+    depends_on:
+      windmill_server: { condition: service_healthy }
+    volumes:
+      - ../:/workspace:ro        # code crawler + src/job_crawler
+      - ../data:/data            # SQLite (crawler ghi)
+      - worker_dependency_cache:/tmp/windmill/cache
+    networks: [windmill-network]
+    logging: *default-logging
+
+volumes:
+  db_data:
+  worker_dependency_cache:
+
+networks:
+  windmill-network:
