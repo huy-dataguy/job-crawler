@@ -17,6 +17,16 @@ export default function Sidebar({ filters, setFilters, meta }: {
 }) {
   return (
     <aside className="w-full lg:w-72 shrink-0 space-y-4">
+      {/* Nguồn — filter chính, để đầu để dễ thấy */}
+      <Card title="Nguồn">
+        <div className="flex flex-wrap gap-1.5">
+          <Chip active={!filters.source} onClick={() => setFilters({ ...filters, source: "" })}>Tất cả</Chip>
+          {SOURCES.map((s) => (
+            <Chip key={s} active={filters.source === s} onClick={() => setFilters({ ...filters, source: s })}>{s}</Chip>
+          ))}
+        </div>
+      </Card>
+
       {/* Lĩnh vực */}
       <Card title="Lĩnh vực">
         <div className="flex flex-wrap gap-1.5">
@@ -66,16 +76,6 @@ export default function Sidebar({ filters, setFilters, meta }: {
                   onClick={() => setFilters({ ...filters, salary_min: v })}>
               {v === 0 ? "Tất cả" : `≥ ${v}tr`}
             </Chip>
-          ))}
-        </div>
-      </Card>
-
-      {/* Source */}
-      <Card title="Nguồn">
-        <div className="flex flex-wrap gap-1.5">
-          <Chip active={!filters.source} onClick={() => setFilters({ ...filters, source: "" })}>Tất cả</Chip>
-          {SOURCES.map((s) => (
-            <Chip key={s} active={filters.source === s} onClick={() => setFilters({ ...filters, source: s })}>{s}</Chip>
           ))}
         </div>
       </Card>
