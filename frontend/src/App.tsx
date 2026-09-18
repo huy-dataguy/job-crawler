@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type { Filters, Job } from "./api";
 import { fetchJobs, fetchMeta, fetchStats, fetchTrend } from "./api";
@@ -58,6 +58,11 @@ export default function App() {
 
   const total = jobsQ.data?.total ?? 0;
   const pages = Math.ceil(total / PAGE_SIZE);
+  const listTopRef = useRef<HTMLDivElement>(null);
+  const goPage = (p: number) => {
+    setPage(p);
+    listTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
   // Dải "mới đăng nhất" LUÔN xếp theo ngày đăng, không ăn theo sort của danh sách.
   // Các filter khác (từ khóa/nguồn/kỹ năng/…) vẫn áp dụng chung.
   const freshFilters = { ...filters, sort: "posted" };
@@ -148,14 +153,13 @@ export default function App() {
         <ActivePills filters={filters} setF={setF} />
 
         <div className="grid gap-5 md:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-          {/* Rail trái: bộ lọc — sticky khi cuộn */}
-          <aside className="min-w-0 order-2 md:order-1">
-            <div className="md:sticky md:top-[132px] space-y-5">
-              <Sidebar filters={filters} setFilters={setF} meta={meta.data} />
-            </div>
+          {/* Rail trái: bộ lọc */}
+          <aside className="min-w-0 order-2 md:order-1 space-y-5">
+            <Sidebar filters={filters} setFilters={setF} meta={meta.data} />
           </aside>
 
           <section className="min-w-0 order-1 md:order-2">
+            <div ref={listTopRef} className="scroll-mt-36" />
             <div className="flex items-baseline justify-between mb-2">
               <h2 className="font-bold">
                 Tất cả việc làm
@@ -163,15 +167,15 @@ export default function App() {
               </h2>
               {pages > 1 && (
                 <div className="flex items-center gap-2 font-mono text-sm">
-                  <button disabled={page <= 1} onClick={() => setPage(page - 1)}
+                  <button disabled={page <= 1} onClick={() => goPage(page - 1)}
                     className="px-2 py-1 rounded-[8px] border border-edge disabled:opacity-30 hover:bg-white/5">←</button>
                   <span className="text-faint">{page}/{pages}</span>
-                  <button disabled={page >= pages} onClick={() => setPage(page + 1)}
+                  <button disabled={page >= pages} onClick={() => goPage(page + 1)}
                     className="px-2 py-1 rounded-[8px] border border-edge disabled:opacity-30 hover:bg-white/5">→</button>
                 </div>
               )}
             </div>
-            <JobTable jobs={jobsQ.data?.jobs} loading={jobsQ.isFetching} />
+            <JobTable jobs={jobsQ.data?.jobs} loading={jobsQ.isPending} />
           </section>
 
           {/* Rail phải: biểu đồ — chỉ hiện trên màn rất rộng */}
