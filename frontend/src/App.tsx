@@ -79,7 +79,7 @@ export default function App() {
     <div className="min-h-screen bg-night text-mist">
       {/* Command bar */}
       <header className="bg-panel/95 backdrop-blur border-b border-edge sticky top-0 z-10 hero-glow">
-        <div className="max-w-[1200px] mx-auto px-5 pt-4 pb-3">
+        <div className="max-w-[1760px] mx-auto px-4 md:px-6 pt-4 pb-3">
           <div className="flex items-baseline justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
               <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-ember to-violet text-white font-extrabold flex items-center justify-center text-lg shadow-[0_0_18px_rgba(255,90,60,0.45)]">J</span>
@@ -124,7 +124,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-[1200px] mx-auto px-5 py-5">
+      <main className="max-w-[1760px] mx-auto px-4 md:px-6 py-5">
         {/* Dải tin mới đăng nhất — luôn xếp theo ngày đăng, tôn trọng mọi filter khác */}
         {fresh.length > 0 && (
           <section aria-label="Tin mới nhất" className="mb-6">
@@ -147,8 +147,15 @@ export default function App() {
 
         <ActivePills filters={filters} setF={setF} />
 
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <section className="min-w-0">
+        <div className="grid gap-5 md:grid-cols-[280px_minmax(0,1fr)] 2xl:grid-cols-[280px_minmax(0,1fr)_360px]">
+          {/* Rail trái: bộ lọc — sticky khi cuộn */}
+          <aside className="min-w-0 order-2 md:order-1">
+            <div className="md:sticky md:top-[132px] space-y-5">
+              <Sidebar filters={filters} setFilters={setF} meta={meta.data} />
+            </div>
+          </aside>
+
+          <section className="min-w-0 order-1 md:order-2">
             <div className="flex items-baseline justify-between mb-2">
               <h2 className="font-bold">
                 Tất cả việc làm
@@ -167,14 +174,19 @@ export default function App() {
             <JobTable jobs={jobsQ.data?.jobs} loading={jobsQ.isFetching} />
           </section>
 
-          <aside className="min-w-0 space-y-5">
-            <Sidebar filters={filters} setFilters={setF} meta={meta.data} />
+          {/* Rail phải: biểu đồ — chỉ hiện trên màn rất rộng */}
+          <aside className="min-w-0 order-3 hidden 2xl:block space-y-5">
             <TrendChart trend={trend.data} />
             <ExperienceChart stats={stats.data} onPick={(v) => setF({ ...filters, exp: v })} />
+            <CategoryChart stats={stats.data} />
+            <SalaryChart jobs={jobsQ.data?.jobs ?? []} />
           </aside>
         </div>
 
-        <div className="grid gap-5 md:grid-cols-2 mt-5">
+        {/* Màn vừa: biểu đồ xuống dưới danh sách */}
+        <div className="grid gap-5 md:grid-cols-2 mt-5 2xl:hidden">
+          <TrendChart trend={trend.data} />
+          <ExperienceChart stats={stats.data} onPick={(v) => setF({ ...filters, exp: v })} />
           <CategoryChart stats={stats.data} />
           <SalaryChart jobs={jobsQ.data?.jobs ?? []} />
         </div>
