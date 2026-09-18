@@ -21,12 +21,18 @@ const SOURCE_DOT: Record<string, string> = {
   itviec: "bg-orange-500", topcv: "bg-rose-500", topdev: "bg-sky-500",
 };
 
+// Sort thời gian chỉ còn 1 nghĩa duy nhất: theo NGÀY ĐĂNG (posted_at).
+// Lọc cửa sổ thời gian nằm ở "Ngày đăng trong" (sidebar). Hai cái bổ sung
+// nhau chứ không đá nhau: cửa sổ chọn tập, sort xếp thứ tự trong tập.
 const SORTS = [
-  { v: "auto", label: "Liên quan nhất" },
-  { v: "posted", label: "Mới đăng trước" },
-  { v: "salary", label: "Lương cao trước" },
-  { v: "new", label: "Mới crawl trước" },
+  { v: "auto", label: "Xếp: liên quan" },
+  { v: "posted", label: "Xếp: mới đăng trước" },
+  { v: "salary", label: "Xếp: lương cao trước" },
 ];
+
+const SINCE_LABEL: Record<number, string> = {
+  0: "", 24: "trong 24 giờ qua", 72: "trong 3 ngày qua", 168: "trong 7 ngày qua",
+};
 
 export default function App() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -52,7 +58,15 @@ export default function App() {
 
   const total = jobsQ.data?.total ?? 0;
   const pages = Math.ceil(total / PAGE_SIZE);
-  const fresh = (jobsQ.data?.jobs ?? []).slice(0, 8);
+  // Dải "mới đăng nhất" LUÔN xếp theo ngày đăng, không ăn theo sort của danh sách.
+  // Các filter khác (từ khóa/nguồn/kỹ năng/…) vẫn áp dụng chung.
+  const freshFilters = { ...filters, sort: "posted" };
+  const freshQ = useQuery({
+    queryKey: ["fresh", freshFilters],
+    queryFn: () => fetchJobs(freshFilters, 1),
+    placeholderData: keepPreviousData,
+  });
+  const fresh = (freshQ.data?.jobs ?? []).slice(0, 8);
 
   const clearCount = [filters.q, filters.source, filters.category, filters.exp, filters.tag,
     filters.skill, filters.level, filters.salary_min ? "1" : "",
@@ -111,11 +125,16 @@ export default function App() {
       </header>
 
       <main className="max-w-[1200px] mx-auto px-5 py-5">
-        {/* Dải tin mới — điểm nhấn duy nhất */}
+        {/* Dải tin mới đăng nhất — luôn xếp theo ngày đăng, tôn trọng mọi filter khác */}
         {fresh.length > 0 && (
           <section aria-label="Tin mới nhất" className="mb-6">
             <div className="flex items-baseline justify-between mb-2">
-              <h2 className="font-bold">Mới lên sóng</h2>
+              <h2 className="font-bold">
+                Mới đăng nhất
+                {SINCE_LABEL[filters.since_hours] && (
+                  <span className="font-normal text-sm text-ink-soft ml-2">{SINCE_LABEL[filters.since_hours]}</span>
+                )}
+              </h2>
               <span className="font-mono text-xs text-ink-faint">kéo ngang →</span>
             </div>
             <div className="strip-scroll flex gap-3 overflow-x-auto pb-2">
@@ -125,6 +144,8 @@ export default function App() {
             </div>
           </section>
         )}
+
+        <ActivePills filters={filters} setF={setF} />
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <section className="min-w-0">
@@ -162,6 +183,38 @@ export default function App() {
           crawl itviec · topcv · topdev — 9h/11h/14h/16h/21h · /api/jobs · /api/stats · /api/meta · /api/trend
         </p>
       </main>
+    </div>
+  );
+}
+
+// Dải trạng thái lọc: cho biết chính xác đang lọc gì, bấm × để gỡ từng cái.
+// Khắc phục việc sort "mới đăng" và lọc "7 ngày" đá nhau mà không nhìn thấy.
+function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) => void }) {
+  const pills: { label: string; clear: () => void }[] = [];
+  if (filters.q) pills.push({ label: `từ khóa “${filters.q}”`, clear: () => setF({ ...filters, q: "" }) });
+  if (filters.source) pills.push({ label: `nguồn ${filters.source}`, clear: () => setF({ ...filters, source: "" }) });
+  if (filters.skill) pills.push({ label: `kỹ năng ${filters.skill}`, clear: () => setF({ ...filters, skill: "" }) });
+  if (filters.category) pills.push({ label: `ngành ${filters.category}`, clear: () => setF({ ...filters, category: "" }) });
+  if (filters.exp) pills.push({ label: `${filters.exp} năm kinh nghiệm`, clear: () => setF({ ...filters, exp: "" }) });
+  if (filters.level) pills.push({ label: `cấp ${filters.level}`, clear: () => setF({ ...filters, level: "" }) });
+  if (filters.salary_min) pills.push({ label: `lương ≥ ${filters.salary_min}tr`, clear: () => setF({ ...filters, salary_min: 0 }) });
+  if (filters.since_hours) pills.push({
+    label: `đăng ${SINCE_LABEL[filters.since_hours] || "gần đây"}`,
+    clear: () => setF({ ...filters, since_hours: 0 }),
+  });
+  if (filters.tag) pills.push({ label: `tag ${filters.tag}`, clear: () => setF({ ...filters, tag: "" }) });
+  if (filters.it_only !== 1) pills.push({ label: "cả tin ngoài IT", clear: () => setF({ ...filters, it_only: 1 }) });
+  if (pills.length === 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap mb-4" aria-live="polite">
+      <span className="font-mono text-xs text-ink-faint">đang lọc:</span>
+      {pills.map((p) => (
+        <button key={p.label} onClick={p.clear} title="Bấm để gỡ lọc này"
+          className="px-2.5 py-1 rounded-full text-[13px] bg-ink text-paper hover:bg-cobalt transition">
+          {p.label} <span aria-hidden>×</span>
+        </button>
+      ))}
+      <span className="font-mono text-xs text-ink-faint">xếp: {SORTS.find((s) => s.v === filters.sort)?.label.replace("Xếp: ", "")}</span>
     </div>
   );
 }

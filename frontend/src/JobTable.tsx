@@ -1,8 +1,9 @@
 import type { Job } from "./api";
 
-// NEW = hệ thống mới thấy tin này trong 72 giờ qua (tính từ first_seen_at)
-function isFresh(firstSeen: string) {
-  const t = new Date(firstSeen).getTime();
+// "Mới" thống nhất toàn web = ngày đăng trong 72h qua (cùng gốc với KPI "mới 24h",
+// chỉ khác cửa sổ). posted_at là ước tính từ "đăng N ngày trước"; thiếu thì fallback first_seen.
+export function isFresh(postedAt: string | null, firstSeen: string) {
+  const t = new Date(postedAt || firstSeen).getTime();
   return !isNaN(t) && Date.now() - t < 72 * 3600 * 1000;
 }
 
@@ -30,7 +31,7 @@ export default function JobTable({ jobs, loading }: { jobs: Job[] | undefined; l
               <span>{j.source}</span>
               <span aria-hidden>·</span>
               <span>{(j.posted_at || j.first_seen_at || "").slice(0, 10)}</span>
-              {isFresh(j.first_seen_at) && (
+              {isFresh(j.posted_at, j.first_seen_at) && (
                 <span className="px-1.5 rounded bg-moss text-paper text-[10px] font-semibold">mới</span>
               )}
             </div>
