@@ -32,8 +32,10 @@ export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] 
   );
 }
 
-export function CategoryChart({ meta }: { meta: Meta | undefined }) {
-  const data = meta?.categories.slice(0, 12) || [];
+export function CategoryChart({ stats }: { stats: {
+  top_categories: { category: string; n: number }[]
+} | undefined }) {
+  const data = (stats?.top_categories || []).slice(0, 12).map((c) => ({ name: c.category, n: c.n }));
   return (
     <Panel title="Top ngành / category">
       <ResponsiveContainer width="100%" height={260}>
@@ -50,9 +52,10 @@ export function CategoryChart({ meta }: { meta: Meta | undefined }) {
 }
 
 export function ExperienceChart({ stats, onPick }: { stats: {
+  top_exp?: { experience: string; n: number }[];
   topcv_top_exp: { experience: string; n: number }[]
 } | undefined; onPick: (name: string) => void }) {
-  const data = stats?.topcv_top_exp || [];
+  const data = stats?.top_exp || stats?.topcv_top_exp || [];
   return (
     <Panel title="Năm kinh nghiệm — click để lọc">
       <ResponsiveContainer width="100%" height={220}>

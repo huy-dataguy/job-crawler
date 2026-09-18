@@ -52,25 +52,8 @@ async function get<T>(url: string): Promise<T> {
   return r.json();
 }
 
-export const fetchMeta = () => get<Meta>("/api/meta");
-
-export const fetchStats = () =>
-  get<{
-    total: number;
-    active: number;
-    new_24h: number;
-    topcv_top_exp: { experience: string; n: number }[];
-    itviec_top_categories: { category: string; n: number }[];
-    generated_at: string;
-  }>("/api/stats");
-
-export const fetchTrend = () =>
-  get<{ sources: string[]; days: any[] }>("/api/trend?days=14");
-
-export function fetchJobs(f: Filters, page: number) {
+export function filterParams(f: Filters): string {
   const p = new URLSearchParams();
-  p.set("offset", String((page - 1) * 50));
-  p.set("limit", "50");
   p.set("it_only", String(f.it_only ?? 1));
   p.set("since_hours", String(f.since_hours || "0"));
   p.set("salary_min", String(f.salary_min || "0"));
@@ -78,5 +61,30 @@ export function fetchJobs(f: Filters, page: number) {
     if (k === "it_only" || k === "since_hours" || k === "salary_min") continue;
     if (v) p.set(k, String(v));
   }
+  return p.toString();
+}
+
+export const fetchMeta = (f: Filters) => get<Meta>("/api/meta?" + filterParams(f));
+
+export const fetchStats = (f: Filters) =>
+  get<{
+    total: number;
+    active: number;
+    new_24h: number;
+    companies: number;
+    top_exp: { experience: string; n: number }[];
+    top_categories: { category: string; n: number }[];
+    topcv_top_exp: { experience: string; n: number }[];
+    itviec_top_categories: { category: string; n: number }[];
+    generated_at: string;
+  }>("/api/stats?" + filterParams(f));
+
+export const fetchTrend = (f: Filters) =>
+  get<{ sources: string[]; days: any[] }>("/api/trend?days=14&" + filterParams(f));
+
+export function fetchJobs(f: Filters, page: number) {
+  const p = new URLSearchParams(filterParams(f));
+  p.set("offset", String((page - 1) * 50));
+  p.set("limit", "50");
   return get<{ total: number; jobs: Job[] }>("/api/jobs?" + p.toString());
 }

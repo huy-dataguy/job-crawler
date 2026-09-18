@@ -27,9 +27,9 @@ export default function App() {
     window.__searchTimer = window.setTimeout(() => setF({ ...filters, q: value }), 350);
   };
 
-  const meta = useQuery({ queryKey: ["meta"], queryFn: fetchMeta });
-  const stats = useQuery({ queryKey: ["stats"], queryFn: fetchStats, refetchInterval: 60_000 });
-  const trend = useQuery({ queryKey: ["trend"], queryFn: fetchTrend, refetchInterval: 300_000 });
+  const meta = useQuery({ queryKey: ["meta", filters], queryFn: () => fetchMeta(filters), placeholderData: keepPreviousData });
+  const stats = useQuery({ queryKey: ["stats", filters], queryFn: () => fetchStats(filters), refetchInterval: 60_000, placeholderData: keepPreviousData });
+  const trend = useQuery({ queryKey: ["trend", filters], queryFn: () => fetchTrend(filters), refetchInterval: 300_000, placeholderData: keepPreviousData });
   const jobsQ = useQuery({
     queryKey: ["jobs", filters, page],
     queryFn: () => fetchJobs(filters, page),
@@ -78,9 +78,9 @@ export default function App() {
         <section className="flex-1 min-w-0 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <Kpi value={total} label="jobs khớp filter" />
-            <Kpi value={stats.data?.new_24h ?? "–"} label="mới trong 24h" color="text-emerald-600" />
-            <Kpi value={stats.data?.total ?? "–"} label="tổng trong DB" />
-            <Kpi value={stats.data?.active ?? "–"} label="còn active" />
+            <Kpi value={stats.data?.new_24h ?? "–"} label="mới 24h (đã lọc)" color="text-emerald-600" />
+            <Kpi value={stats.data?.companies ?? "–"} label="công ty đang tuyển" color="text-indigo-600" />
+            <Kpi value={stats.data?.active ?? "–"} label="còn active (đã lọc)" />
           </div>
 
           <div className="grid md:grid-cols-2 gap-6">
@@ -88,7 +88,7 @@ export default function App() {
             <ExperienceChart stats={stats.data} onPick={(v) => setF({ ...filters, exp: v })} />
           </div>
           <div className="grid md:grid-cols-2 gap-6">
-            <CategoryChart meta={meta.data} />
+            <CategoryChart stats={stats.data} />
             <SalaryChart jobs={jobsQ.data?.jobs ?? []} />
           </div>
 
