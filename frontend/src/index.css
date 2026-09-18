@@ -1,1 +1,52 @@
 @import "tailwindcss";
+@import "@fontsource/be-vietnam-pro/400.css";
+@import "@fontsource/be-vietnam-pro/500.css";
+@import "@fontsource/be-vietnam-pro/600.css";
+@import "@fontsource/be-vietnam-pro/700.css";
+@import "@fontsource/be-vietnam-pro/800.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+@theme {
+  --color-paper: #f7f5f0;
+  --color-paper-deep: #efebe1;
+  --color-card: #fffdf9;
+  --color-ink: #1b1e23;
+  --color-ink-soft: #4b5058;
+  --color-ink-faint: #8b9099;
+  --color-line: #e2ddcf;
+  --color-cobalt: #1e40af;
+  --color-cobalt-deep: #17317f;
+  --color-moss: #0e6b5e;
+
+  --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html {
+  background: var(--color-paper);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* dải tin mới cuộn ngang — thanh cuộn mảnh */
+.strip-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+.strip-scroll::-webkit-scrollbar {
+  height: 6px;
+}
+.strip-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 3px;
+}
+
+::selection {
+  background: #1e40af;
+  color: #fff;
+}

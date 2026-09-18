@@ -44,6 +44,7 @@ export type Filters = {
   salary_min: number;
   it_only: number;
   since_hours: number;
+  sort: string;
 };
 
 async function get<T>(url: string): Promise<T> {
@@ -57,8 +58,9 @@ export function filterParams(f: Filters): string {
   p.set("it_only", String(f.it_only ?? 1));
   p.set("since_hours", String(f.since_hours || "0"));
   p.set("salary_min", String(f.salary_min || "0"));
+  if (f.sort && f.sort !== "auto") p.set("sort", f.sort);
   for (const [k, v] of Object.entries(f)) {
-    if (k === "it_only" || k === "since_hours" || k === "salary_min") continue;
+    if (k === "it_only" || k === "since_hours" || k === "salary_min" || k === "sort") continue;
     if (v) p.set(k, String(v));
   }
   return p.toString();

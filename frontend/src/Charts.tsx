@@ -44,7 +44,7 @@ export function CategoryChart({ stats }: { stats: {
           <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={120} />
           <Tooltip />
-          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#6366f1" radius={[0, 4, 4, 0]} />
+          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#1b1e23" radius={[0, 3, 3, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Panel>
@@ -64,7 +64,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
           <XAxis dataKey="experience" tick={{ fontSize: 11 }} />
           <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
           <Tooltip />
-          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#10b981" radius={[4, 4, 0, 0]} />
+          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#1e40af" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Panel>
@@ -88,7 +88,7 @@ export function SalaryChart({ jobs }: { jobs: Job[] }) {
           <XAxis dataKey="range" tick={{ fontSize: 11 }} />
           <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
           <Tooltip />
-          <Area isAnimationActive={false} dataKey="n" name="số job" stroke="#8b5cf6" fill="#ddd6fe" strokeWidth={2} />
+          <Area isAnimationActive={false} dataKey="n" name="số job" stroke="#0e6b5e" fill="#0e6b5e22" strokeWidth={2} />
         </AreaChart>
       </ResponsiveContainer>
     </Panel>
@@ -97,8 +97,8 @@ export function SalaryChart({ jobs }: { jobs: Job[] }) {
 
 export function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl shadow p-4">
-      <h3 className="text-xs font-semibold uppercase text-slate-500 mb-3">{title}</h3>
+    <div className="bg-card border border-line rounded-[10px] p-4">
+      <h3 className="font-mono text-xs text-ink-faint mb-3">{title}</h3>
       {children}
     </div>
   );
