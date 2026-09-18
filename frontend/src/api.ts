@@ -65,7 +65,7 @@ export const fetchStats = () =>
   }>("/api/stats");
 
 export const fetchTrend = () =>
-  get<{ date: string; itviec: number; topcv: number }[]>("/api/trend?days=14");
+  get<{ sources: string[]; days: any[] }>("/api/trend?days=14");
 
 export function fetchJobs(f: Filters, page: number) {
   const p = new URLSearchParams();

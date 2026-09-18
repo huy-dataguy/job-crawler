@@ -5,8 +5,14 @@ import {
 import type { Job, Meta } from "./api";
 import { BUCKET_ORDER, salaryBucket } from "./salary";
 
-export function TrendChart({ trend }: { trend: { date: string; itviec: number; topcv: number }[] | undefined }) {
-  const data = (trend || []).map((d) => ({ ...d, total: d.itviec + d.topcv }));
+const SOURCE_COLORS: Record<string, string> = {
+  itviec: "#fb923c", topcv: "#f43f5e", topdev: "#0ea5e9",
+};
+const FALLBACK_COLORS = ["#8b5cf6", "#10b981", "#f59e0b", "#6366f1"];
+
+export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] } | undefined }) {
+  const sources = trend?.sources || [];
+  const data = trend?.days || [];
   return (
     <Panel title="Việc mới đăng theo ngày (14 ngày, ước tính từ 'đăng N ngày trước')">
       <ResponsiveContainer width="100%" height={220}>
@@ -16,8 +22,10 @@ export function TrendChart({ trend }: { trend: { date: string; itviec: number; t
           <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
           <Tooltip />
           <Legend wrapperStyle={{ fontSize: 12 }} />
-          <Bar isAnimationActive={false} dataKey="itviec" stackId="s" name="itviec" fill="#fb923c" />
-          <Bar isAnimationActive={false} dataKey="topcv" stackId="s" name="topcv" fill="#f43f5e" />
+          {sources.map((s, i) => (
+            <Bar key={s} isAnimationActive={false} dataKey={s} stackId="s" name={s}
+                 fill={SOURCE_COLORS[s] || FALLBACK_COLORS[i % FALLBACK_COLORS.length]} />
+          ))}
         </ComposedChart>
       </ResponsiveContainer>
     </Panel>

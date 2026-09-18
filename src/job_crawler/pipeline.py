@@ -3,14 +3,16 @@ from __future__ import annotations
 
 import sqlite3
 
-from . import config, itviec, store, topcv
+from . import config, itviec, store, topcv, topdev
+
+SOURCES = {"itviec": itviec, "topcv": topcv, "topdev": topdev}
 
 
 def run_source(name: str) -> dict:
     conn = store.connect(config.DB_PATH)
     run_id = store.start_run(conn, name)
     try:
-        jobs = (itviec if name == "itviec" else topcv).crawl()
+        jobs = SOURCES[name].crawl()
         new = upd = 0
         for j in jobs:
             if store.upsert_job(conn, j) == "new":
@@ -30,4 +32,4 @@ def run_source(name: str) -> dict:
 
 
 def run_all() -> list[dict]:
-    return [run_source("itviec"), run_source("topcv")]
+    return [run_source(s) for s in ("itviec", "topcv", "topdev")]

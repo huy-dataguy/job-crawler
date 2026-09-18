@@ -20,7 +20,7 @@ export default function JobTable({ jobs, loading }: { jobs: Job[] | undefined; l
                 <div className="flex items-center gap-2 mb-0.5">
                   {isFresh(j.first_seen_at) ? <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 text-[10px] font-semibold">NEW</span> : null}
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0
-                    ${j.source === "itviec" ? "bg-orange-100 text-orange-700" : "bg-rose-100 text-rose-700"}`}>
+                    ${j.source === "itviec" ? "bg-orange-100 text-orange-700" : j.source === "topdev" ? "bg-sky-100 text-sky-700" : "bg-rose-100 text-rose-700"}`}>
                     {j.source}
                   </span>
                   <span className="text-xs text-slate-400">{fmtDate(j.posted_at || j.first_seen_at)}</span>

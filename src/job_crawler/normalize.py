@@ -106,10 +106,30 @@ def parse_level(title: str) -> str:
     return ""
 
 
+# Ưu tiên role cụ thể thắng ngôn ngữ chung (vd Python + AI/ML → AI Engineer)
+CATEGORY_PRIORITY = [
+    "Data Scientist", "Data Analyst", "Data Engineer", "AI/ML",
+    "Tester/QA", "Security", "DevOps", "Backend", "Frontend", "Fullstack",
+    "Mobile", "Game", "Embedded", "System Admin", "Cloud",
+    "BA", "Product Owner", "Project Manager", "Scrum",
+    "UI/UX", "SAP/ERP", "Salesforce/CRM", "WordPress", "IT General",
+    "Java", "Python", "Golang", "Node.js", "PHP", ".NET", "C++",
+    "Kotlin", "Swift", "Dart/Flutter", "JavaScript", "TypeScript",
+    "React", "Angular", "Vue", "Android", "iOS",
+    "API/Microservices", "Spring", "Django", "Laravel",
+    "Docker", "Kubernetes", "AWS", "Azure", "GCP", "CI/CD",
+    "Terraform", "Linux", "SQL",
+]
+
+
 def infer_category(title: str, skills: list[str], category: str) -> str:
-    """Giữ category có sẵn (itviec); topcv suy từ skills → title."""
+    """Giữ category có sẵn (itviec); topcv/topdev suy từ skills (role ưu tiên) → title."""
     if category:
         return category
+    sset = set(skills)
+    for s in CATEGORY_PRIORITY:
+        if s in sset and s in SKILL_CATEGORY:
+            return SKILL_CATEGORY[s]
     for s in skills:
         if s in SKILL_CATEGORY:
             return SKILL_CATEGORY[s]

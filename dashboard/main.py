@@ -217,15 +217,17 @@ def api_trend(days: int = Query(14, le=60)):
            FROM jobs WHERE posted_at >= ? GROUP BY 1, 2 ORDER BY 1""",
         [since],
     ).fetchall()
+    sources = [r["source"] for r in conn.execute("SELECT DISTINCT source FROM jobs")]
     conn.close()
     out: dict[str, dict[str, dict[str, int]]] = {}
     for r in rows:
         out.setdefault(r["d"], {})  # type: ignore
         out[r["d"]][r["source"]] = r["n"]  # type: ignore
-    return JSONResponse([
-        {"date": k, "itviec": v.get("itviec", 0), "topcv": v.get("topcv", 0)}
-        for k, v in sorted(out.items())
-    ])
+    return JSONResponse({
+        "sources": sources,
+        "days": [{**{"date": k}, **{s: v.get(s, 0) for s in sources}}
+                 for k, v in sorted(out.items())],
+    })
 
 
 @app.get("/api/stats")
