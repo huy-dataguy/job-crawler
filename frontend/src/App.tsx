@@ -41,6 +41,14 @@ export default function App() {
 
   const setF = (f: Filters) => { setFilters(f); setPage(1); };
 
+  // Nút Home (logo + tên): reset toàn bộ search + filter + trang, cuộn lên đầu
+  const goHome = () => {
+    setSearchInput("");
+    setFilters(DEFAULT_FILTERS);
+    setPage(1);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const onSearchChange = (value: string) => {
     setSearchInput(value);
     window.clearTimeout(window.__searchTimer);
@@ -86,11 +94,12 @@ export default function App() {
       <header className="bg-panel/95 backdrop-blur border-b border-edge sticky top-0 z-10 hero-glow">
         <div className="max-w-[1760px] mx-auto px-4 md:px-6 pt-4 pb-3">
           <div className="flex items-baseline justify-between gap-4 flex-wrap">
-            <div className="flex items-center gap-3">
+            <button onClick={goHome} title="Về trang chủ — xoá hết tìm kiếm và lọc"
+              className="flex items-center gap-3 rounded-[10px] px-1 py-0.5 hover:opacity-85 transition" aria-label="Home — reset tất cả">
               <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-ember to-violet text-white font-extrabold flex items-center justify-center text-lg shadow-[0_0_18px_rgba(255,90,60,0.45)]">J</span>
               <h1 className="text-xl font-extrabold tracking-tight">IT Jobs HCMC</h1>
               <span className="font-mono text-xs text-faint hidden md:inline">{dateLine}</span>
-            </div>
+            </button>
             <p className="font-mono text-xs text-faint">
               {total} việc · {stats.data?.new_24h ?? "–"} mới 24h · crawl 9h/11h/14h/16h/21h
             </p>
