@@ -12,7 +12,7 @@ declare global {
   interface Window { __searchTimer?: number }
 }
 
-const DEFAULT_FILTERS: Filters = { q: "", source: "", category: "", exp: "", tag: "", skill: "", it_only: 1, since_hours: 0 };
+const DEFAULT_FILTERS: Filters = { q: "", source: "", category: "", exp: "", tag: "", skill: "", level: "", salary_min: 0, it_only: 1, since_hours: 0 };
 
 export default function App() {
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
@@ -40,7 +40,8 @@ export default function App() {
   const pages = Math.ceil(total / PAGE_SIZE);
 
   const clearCount = [filters.q, filters.source, filters.category, filters.exp, filters.tag,
-    filters.skill, filters.since_hours ? "1" : ""].filter(Boolean).length;
+    filters.skill, filters.level, filters.salary_min ? "1" : "",
+    filters.since_hours ? "1" : ""].filter(Boolean).length;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">

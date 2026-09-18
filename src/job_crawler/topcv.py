@@ -101,6 +101,9 @@ def parse_listing(html: str) -> list[dict]:
         href = title_el["href"] if title_el and title_el.has_attr("href") else ""
         title = title_el.get_text(" ", strip=True) if title_el else ""
         tags_clean = normalize.clean_tags(raw_tags)
+        skills = normalize.extract_skills(title, tags_clean)
+        salary_text = salary_el.get_text(" ", strip=True) if salary_el else ""
+        sal_min, sal_max = normalize.parse_salary_range(salary_text)
         jobs.append(
             {
                 "source": "topcv",
@@ -109,13 +112,16 @@ def parse_listing(html: str) -> list[dict]:
                 "company": company_el.get_text(" ", strip=True) if company_el else "",
                 "url": href.split("?")[0] if href.startswith("http") else f"https://www.topcv.vn{href}",
                 "city": city_el.get_text(" ", strip=True) if city_el else "",
-                "salary": salary_el.get_text(" ", strip=True) if salary_el else "",
+                "salary": salary_text,
                 "experience": exp_text,
                 "exp_min": normalize.parse_exp_min(exp_text),
-                "category": "",
+                "category": normalize.infer_category(title, skills, ""),
                 "tags": normalize.tags_json(raw_tags),
-                "skills": json.dumps(normalize.extract_skills(title, tags_clean), ensure_ascii=False),
+                "skills": json.dumps(skills, ensure_ascii=False),
                 "is_it": 1 if normalize.is_it_job(title, tags_clean, "", "topcv") else 0,
+                "level": normalize.parse_level(title),
+                "salary_min": sal_min,
+                "salary_max": sal_max,
                 "posted_text": posted_text,
                 "posted_at": _posted_iso(posted_text),
             }

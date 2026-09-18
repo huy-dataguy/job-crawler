@@ -60,6 +60,10 @@ def parse_listing(html: str) -> list[dict]:
         title = _txt(title_el)
         category = _txt(category_el) or (category_el.get("title") if category_el else "")
         tags_clean = normalize.clean_tags(tags)
+        skills = normalize.extract_skills(title, tags_clean, category)
+        level = normalize.parse_level(title)
+        salary_text = _txt(salary_el).replace("Sign in to view salary", "").strip() or "N/A"
+        sal_min, sal_max = normalize.parse_salary_range(salary_text)
         jobs.append(
             {
                 "source": "itviec",
@@ -68,13 +72,17 @@ def parse_listing(html: str) -> list[dict]:
                 "company": _txt(company_el),
                 "url": config.BASE_URL + "it-jobs/" + slug_attr,
                 "city": "Hồ Chí Minh",
-                "salary": _txt(salary_el).replace("Sign in to view salary", "").strip() or "N/A",
+                "salary": salary_text,
                 "experience": "",
-                "exp_min": None,  # itviec card không ghi số năm kinh nghiệm
-                "category": category,
+                # itviec card không ghi số năm → ước tính từ level trong title
+                "exp_min": normalize.LEVEL_EXP.get(level),
+                "category": normalize.infer_category(title, skills, category),
                 "tags": normalize.tags_json(tags),
-                "skills": json.dumps(normalize.extract_skills(title, tags_clean, category), ensure_ascii=False),
+                "skills": json.dumps(skills, ensure_ascii=False),
                 "is_it": 1,  # itviec là site IT thuần
+                "level": level,
+                "salary_min": sal_min,
+                "salary_max": sal_max,
                 "posted_text": posted_text,
                 "posted_at": _posted_iso(posted_text),
             }

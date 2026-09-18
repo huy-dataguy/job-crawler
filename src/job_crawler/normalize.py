@@ -44,15 +44,115 @@ def parse_exp_min(text: str) -> float | None:
     return None
 
 
-def exp_bucket(exp_min: float | None) -> str:
-    """Bucket hiển thị: '0' (fresher/không YC), '1'..'4', '5+'."""
-    if exp_min is None:
-        return ""
-    if exp_min <= 0:
-        return "0"
-    if exp_min >= 5:
-        return "5+"
-    return str(int(exp_min))
+# --- Canonical đồng nhất xuyên nguồn --------------------------------------
+# Mọi job (itviec/topcv) đều có: category, level, salary_min/max, exp_min.
+
+# skill chuẩn → category chuẩn (đặt tên theo style category của itviec)
+SKILL_CATEGORY: dict[str, str] = {
+    "Java": "Backend Developer", "Python": "Backend Developer",
+    "Golang": "Backend Developer", "Node.js": "Backend Developer",
+    "PHP": "Backend Developer", ".NET": "Backend Developer",
+    "C++": "Backend Developer", "Kotlin": "Backend Developer",
+    "Backend": "Backend Developer", "API/Microservices": "Backend Developer",
+    "Spring": "Backend Developer", "Django": "Backend Developer",
+    "Laravel": "Backend Developer",
+    "JavaScript": "Frontend Developer", "TypeScript": "Frontend Developer",
+    "React": "Frontend Developer", "Angular": "Frontend Developer",
+    "Vue": "Frontend Developer", "Frontend": "Frontend Developer",
+    "Android": "Mobile Developer", "iOS": "Mobile Developer",
+    "Dart/Flutter": "Mobile Developer", "Mobile": "Mobile Developer",
+    "Fullstack": "Fullstack Developer",
+    "DevOps": "DevOps Engineer", "Docker": "DevOps Engineer",
+    "Kubernetes": "DevOps Engineer", "CI/CD": "DevOps Engineer",
+    "Terraform": "DevOps Engineer", "Cloud": "DevOps Engineer",
+    "AWS": "DevOps Engineer", "Azure": "DevOps Engineer",
+    "GCP": "DevOps Engineer",
+    "Data Engineer": "Data Engineer", "Data Analyst": "Data Analyst",
+    "Data Scientist": "Data Scientist", "AI/ML": "AI Engineer",
+    "SQL": "Data Engineer",
+    "Tester/QA": "Tester/QC", "Security": "Security Engineer",
+    "System Admin": "System/Network Admin",
+    "Game": "Game Developer", "Embedded": "Embedded Engineer",
+    "BA": "Business Analyst", "Product Owner": "Product Owner",
+    "Project Manager": "Project Manager", "Scrum": "Project Manager",
+    "UI/UX": "UI/UX Designer", "SAP/ERP": "ERP Consultant",
+    "Salesforce/CRM": "CRM Consultant",
+}
+
+# level → exp_min ước tính (dùng cho nguồn không ghi số năm, vd itviec)
+LEVEL_EXP: dict[str, float] = {
+    "intern": 0.0, "fresher": 0.0, "junior": 1.0, "middle": 2.0,
+    "senior": 3.0, "lead": 4.0, "manager": 5.0,
+}
+
+_LEVEL_RES: list[tuple[str, str]] = [
+    ("intern", r"intern|thực tập|tts\b"),
+    ("fresher", r"fresher|mới tốt nghiệp|junior fresher|graduate"),
+    ("junior", r"junior|\bjr\.?\b"),
+    ("middle", r"middle|\bmid\.?\b"),
+    ("senior", r"senior|\bsr\.?\b"),
+    ("lead", r"\blead\b|team lead|tech lead|trưởng nhóm"),
+    ("manager", r"manager|head\b|director|giám đốc|trưởng phòng|quản lý"),
+]
+
+
+def parse_level(title: str) -> str:
+    """Bóc seniority từ title — chạy cho cả 2 nguồn."""
+    t = (title or "").lower()
+    for level, pat in _LEVEL_RES:
+        if re.search(pat, t):
+            return level
+    return ""
+
+
+def infer_category(title: str, skills: list[str], category: str) -> str:
+    """Giữ category có sẵn (itviec); topcv suy từ skills → title."""
+    if category:
+        return category
+    for s in skills:
+        if s in SKILL_CATEGORY:
+            return SKILL_CATEGORY[s]
+    t = (title or "").lower()
+    for pat, cat in [(r"tester|qa|qc|kiểm thử", "Tester/QC"),
+                     (r"data|dữ liệu", "Data Engineer"),
+                     (r"devops|cloud|infra", "DevOps Engineer"),
+                     (r"backend|server", "Backend Developer"),
+                     (r"frontend|web\b", "Frontend Developer"),
+                     (r"mobile|android|ios", "Mobile Developer"),
+                     (r"security|bảo mật", "Security Engineer"),
+                     (r"designer|thiết kế", "UI/UX Designer")]:
+        if re.search(pat, t):
+            return cat
+    return ""
+
+
+_USD = 0.026  # 1 USD ≈ 0.026 triệu VND
+
+
+def parse_salary_range(text: str) -> tuple[float | None, float | None]:
+    """'12 - 15 triệu' → (12,15); '$1,000 - $2,000' → đổi sang triệu VND; 'N/A' → (None,None)."""
+    t = (text or "").lower().replace(",", "")
+    if not t or "thỏa thuận" in t or t.strip() in ("n/a", "-", "negotiable"):
+        return (None, None)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(triệu|tr\b|million)", t)
+    if m:
+        return (float(m.group(1)), float(m.group(2)))
+    m = re.search(r"\$(\d+(?:\.\d+)?)\s*[-–]\s*\$(\d+(?:\.\d+)?)", t)
+    if m:
+        return (round(float(m.group(1)) * _USD, 1), round(float(m.group(2)) * _USD, 1))
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(triệu|tr\b)", t)
+    if m:
+        v = float(m.group(1))
+        return (v, v)
+    m = re.search(r"\$(\d+(?:\.\d+)?)", t)
+    if m:
+        v = round(float(m.group(1)) * _USD, 1)
+        return (v, v)
+    m = re.search(r"(\d+)\s*k\b", t)
+    if m:
+        v = float(m.group(1)) / 1000
+        return (v, v)
+    return (None, None)
 
 
 # --- Phân loại IT & bóc kỹ năng IT --------------------------------------

@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   tags          TEXT,          -- JSON array (chỉ tag kỹ năng, đã loại tag trùng experience)
   skills        TEXT,          -- JSON array skill IT chuẩn (bóc từ title+tags+category)
   is_it         INTEGER NOT NULL DEFAULT 1,  -- 1 = job IT, 0 = non-IT (chủ yếu topcv)
+  -- Canonical đồng nhất xuyên nguồn (mọi job đều có, filter nào cũng chạy):
+  level         TEXT,          -- intern|fresher|junior|middle|senior|lead|manager (bóc từ title)
+  salary_min    REAL,          -- triệu VND/tháng (parse từ salary text; NULL = không công khai)
+  salary_max    REAL,
   posted_text   TEXT,
   posted_at     TEXT,          -- ISO 8601 (ước tính từ "N hours ago")
   first_seen_at TEXT NOT NULL,
@@ -69,7 +73,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
     for col, ddl in [("exp_min", "REAL"),
                      ("skills", "TEXT"),
-                     ("is_it", "INTEGER NOT NULL DEFAULT 1")]:
+                     ("is_it", "INTEGER NOT NULL DEFAULT 1"),
+                     ("level", "TEXT"),
+                     ("salary_min", "REAL"),
+                     ("salary_max", "REAL")]:
         if col not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
     # Drop FTS cũ nếu là bản content-sync/trigger (từng gây corrupt khi UPDATE)
@@ -104,7 +111,7 @@ def now_iso() -> str:
 _JOB_COLS = [
     "source", "source_id", "title", "company", "url", "city", "salary",
     "experience", "exp_min", "category", "tags", "skills", "is_it",
-    "posted_text", "posted_at",
+    "level", "salary_min", "salary_max", "posted_text", "posted_at",
 ]
 
 

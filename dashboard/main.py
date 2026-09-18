@@ -50,10 +50,11 @@ if FRONTEND_DIST.is_dir():
 @app.get("/api/jobs")
 def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
              q: str = "", category: str = "", exp: str = "", tag: str = "",
-             skill: str = "", it_only: int = 1,
+             skill: str = "", level: str = "", salary_min: float = 0,
+             it_only: int = 1,
              since_hours: int = 0, sort: str = "auto"):
-    """q: full-text search (nhiều từ = AND, vd 'java backend'); exp: bucket '0'..'4','5+';
-    skill: kỹ năng IT chuẩn (vd 'Java'); it_only=1: chỉ job IT."""
+    """Bảng đồng nhất xuyên nguồn: mọi filter (q/exp/level/category/skill/salary)
+    đều chạy cho cả itviec + topcv. exp itviec là ước tính từ level trong title."""
     conn = db()
     use_fts = bool(q.strip())
     if use_fts:
@@ -64,6 +65,22 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
         frm = "jobs"
     if it_only:
         where.append("jobs.is_it = 1" if use_fts else "is_it = 1")
+    if source:
+        where.append("source=?")
+        params.append(source)
+    if category:
+        where.append("category=?")
+        params.append(category)
+    if exp:
+        cond = _exp_cond(exp)
+        if cond:
+            where.append(cond)
+    if level:
+        where.append("level=?")
+        params.append(level)
+    if salary_min:
+        where.append("salary_max IS NOT NULL AND salary_max >= ?")
+        params.append(salary_min)
     if source:
         where.append("source=?")
         params.append(source)
@@ -87,6 +104,8 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
         order = "posted_at DESC NULLS LAST"
     elif sort == "new":
         order = "last_seen_at DESC"
+    elif sort == "salary":
+        order = "salary_max DESC NULLS LAST"
     else:
         order = "bm25(jobs_fts)"  # relevance khi search từ khóa
     where_s = " AND ".join(where)
@@ -94,7 +113,9 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     rows = conn.execute(
         f"""SELECT jobs.source, jobs.source_id, jobs.title, jobs.company, jobs.url,
                    jobs.city, jobs.salary, jobs.experience, jobs.exp_min, jobs.category,
-                   jobs.tags, jobs.skills, jobs.is_it, jobs.posted_text, jobs.posted_at,
+                   jobs.tags, jobs.skills, jobs.is_it, jobs.level,
+                   jobs.salary_min, jobs.salary_max,
+                   jobs.posted_text, jobs.posted_at,
                    jobs.first_seen_at, jobs.last_seen_at, jobs.is_new
             FROM {frm} WHERE {where_s} ORDER BY {order} LIMIT ? OFFSET ?""",
         params + [limit, offset],
@@ -125,6 +146,9 @@ _EXP_BUCKETS = [
     ("4", "4 năm", "= 4"),
     ("5+", "5+ năm", ">= 5"),
 ]
+
+
+_LEVELS = ["intern", "fresher", "junior", "middle", "senior", "lead", "manager"]
 
 
 def _exp_cond(bucket: str) -> str | None:
@@ -174,6 +198,11 @@ def api_meta():
                        sorted(skill_counts.items(), key=lambda kv: kv[1], reverse=True)[:40]],
         "it_count": conn.execute("SELECT count(*) FROM jobs WHERE is_it=1").fetchone()[0],
         "non_it_count": conn.execute("SELECT count(*) FROM jobs WHERE is_it=0").fetchone()[0],
+        "levels": [
+            {"value": lv, "n": conn.execute(
+                "SELECT count(*) FROM jobs WHERE is_it=1 AND level=?", [lv]).fetchone()[0]}
+            for lv in _LEVELS
+        ],
     }
     conn.close()
     return out

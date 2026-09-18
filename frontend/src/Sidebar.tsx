@@ -46,6 +46,30 @@ export default function Sidebar({ filters, setFilters, meta }: {
         </Card>
       )}
 
+      {/* Level + Lương — canonical xuyên nguồn */}
+      <Card title="Cấp bậc">
+        <div className="flex flex-wrap gap-1.5">
+          <Chip active={!filters.level} onClick={() => setFilters({ ...filters, level: "" })}>Tất cả</Chip>
+          {(meta?.levels || []).filter((l) => l.n > 0).map((l) => (
+            <Chip key={l.value} active={filters.level === l.value}
+                  onClick={() => setFilters({ ...filters, level: filters.level === l.value ? "" : l.value })}>
+              {l.value} <span className="opacity-50">{l.n}</span>
+            </Chip>
+          ))}
+        </div>
+      </Card>
+
+      <Card title="Lương tới ít nhất (tr/tháng)">
+        <div className="flex flex-wrap gap-1.5">
+          {[0, 10, 20, 35, 50].map((v) => (
+            <Chip key={v} active={filters.salary_min === v}
+                  onClick={() => setFilters({ ...filters, salary_min: v })}>
+              {v === 0 ? "Tất cả" : `≥ ${v}tr`}
+            </Chip>
+          ))}
+        </div>
+      </Card>
+
       {/* Source */}
       <Card title="Nguồn">
         <div className="flex flex-wrap gap-1.5">
@@ -69,7 +93,7 @@ export default function Sidebar({ filters, setFilters, meta }: {
 
       {/* Category */}
       {meta && (
-        <Card title="Ngành / category (itviec)">
+        <Card title="Ngành / category">
           <ul className="space-y-1 max-h-64 overflow-y-auto pr-1">
             <Item active={!filters.category} onClick={() => setFilters({ ...filters, category: "" })}>
               Tất cả

@@ -35,6 +35,7 @@ export default function JobTable({ jobs, loading }: { jobs: Job[] | undefined; l
                     <Badge cls="bg-emerald-50 text-emerald-700">💰 {j.salary}</Badge>
                   )}
                   {j.experience && <Badge cls="bg-slate-100 text-slate-600">🐟 {j.experience}</Badge>}
+                  {j.level && <Badge cls="bg-amber-50 text-amber-700 border border-amber-100">🎖 {j.level}</Badge>}
                   {j.category && <Badge cls="bg-indigo-50 text-indigo-600">{j.category}</Badge>}
                   {(j.skills || []).slice(0, 5).map((t) => t && (
                     <Badge key={t} cls="bg-blue-50 text-blue-700 border border-blue-100">⚙ {t}</Badge>

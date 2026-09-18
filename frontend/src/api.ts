@@ -4,6 +4,7 @@ export type Meta = {
   experience: { value: string; name: string; n: number }[];
   top_tags: { name: string; n: number }[];
   top_skills: { name: string; n: number }[];
+  levels: { value: string; n: number }[];
   it_count: number;
   non_it_count: number;
 };
@@ -22,6 +23,9 @@ export type Job = {
   tags: string[];
   skills: string[];
   is_it: number;
+  level: string;
+  salary_min: number | null;
+  salary_max: number | null;
   posted_text: string;
   posted_at: string | null;
   first_seen_at: string;
@@ -36,6 +40,8 @@ export type Filters = {
   exp: string;
   tag: string;
   skill: string;
+  level: string;
+  salary_min: number;
   it_only: number;
   since_hours: number;
 };
@@ -67,8 +73,9 @@ export function fetchJobs(f: Filters, page: number) {
   p.set("limit", "50");
   p.set("it_only", String(f.it_only ?? 1));
   p.set("since_hours", String(f.since_hours || "0"));
+  p.set("salary_min", String(f.salary_min || "0"));
   for (const [k, v] of Object.entries(f)) {
-    if (k === "it_only" || k === "since_hours") continue;
+    if (k === "it_only" || k === "since_hours" || k === "salary_min") continue;
     if (v) p.set(k, String(v));
   }
   return get<{ total: number; jobs: Job[] }>("/api/jobs?" + p.toString());
