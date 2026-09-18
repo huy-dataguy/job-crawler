@@ -17,6 +17,35 @@ export default function Sidebar({ filters, setFilters, meta }: {
 }) {
   return (
     <aside className="w-full lg:w-72 shrink-0 space-y-4">
+      {/* Lĩnh vực */}
+      <Card title="Lĩnh vực">
+        <div className="flex flex-wrap gap-1.5">
+          <Chip active={filters.it_only === 1}
+                onClick={() => setFilters({ ...filters, it_only: 1 })}>
+            💻 IT{meta ? ` (${meta.it_count})` : ""}
+          </Chip>
+          <Chip active={filters.it_only === 0}
+                onClick={() => setFilters({ ...filters, it_only: 0 })}>
+            Tất cả{meta ? ` (${meta.it_count + meta.non_it_count})` : ""}
+          </Chip>
+        </div>
+      </Card>
+
+      {/* Kỹ năng IT — facet chính thay cho tags thô */}
+      {meta && (
+        <Card title="Kỹ năng IT (click để lọc)">
+          <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto">
+            <Chip active={!filters.skill} onClick={() => setFilters({ ...filters, skill: "" })}>Tất cả</Chip>
+            {meta.top_skills.map((t) => (
+              <Chip key={t.name} active={filters.skill === t.name}
+                    onClick={() => setFilters({ ...filters, skill: filters.skill === t.name ? "" : t.name })}>
+                {t.name} <span className="opacity-50">{t.n}</span>
+              </Chip>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Source */}
       <Card title="Nguồn">
         <div className="flex flex-wrap gap-1.5">
@@ -72,7 +101,7 @@ export default function Sidebar({ filters, setFilters, meta }: {
 
       {/* Tags */}
       {meta && (
-        <Card title="Tags (click để lọc)">
+        <Card title="Tags TopCV (tham khảo)">
           <div className="flex flex-wrap gap-1.5 max-h-56 overflow-y-auto">
             <Chip active={!filters.tag} onClick={() => setFilters({ ...filters, tag: "" })}>Tất cả</Chip>
             {meta.top_tags.map((t) => (

@@ -36,7 +36,10 @@ export default function JobTable({ jobs, loading }: { jobs: Job[] | undefined; l
                   )}
                   {j.experience && <Badge cls="bg-slate-100 text-slate-600">🐟 {j.experience}</Badge>}
                   {j.category && <Badge cls="bg-indigo-50 text-indigo-600">{j.category}</Badge>}
-                  {j.tags.slice(0, 6).map((t) => t && (
+                  {(j.skills || []).slice(0, 5).map((t) => t && (
+                    <Badge key={t} cls="bg-blue-50 text-blue-700 border border-blue-100">⚙ {t}</Badge>
+                  ))}
+                  {j.tags.slice(0, 4).map((t) => t && (
                     <Badge key={t} cls="bg-slate-50 text-slate-500 border border-slate-100">{t}</Badge>
                   ))}
                 </div>

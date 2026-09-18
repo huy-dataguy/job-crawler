@@ -3,6 +3,9 @@ export type Meta = {
   categories: { name: string; n: number }[];
   experience: { value: string; name: string; n: number }[];
   top_tags: { name: string; n: number }[];
+  top_skills: { name: string; n: number }[];
+  it_count: number;
+  non_it_count: number;
 };
 
 export type Job = {
@@ -17,6 +20,8 @@ export type Job = {
   exp_min: number | null;
   category: string;
   tags: string[];
+  skills: string[];
+  is_it: number;
   posted_text: string;
   posted_at: string | null;
   first_seen_at: string;
@@ -30,6 +35,8 @@ export type Filters = {
   category: string;
   exp: string;
   tag: string;
+  skill: string;
+  it_only: number;
   since_hours: number;
 };
 
@@ -56,12 +63,13 @@ export const fetchTrend = () =>
 
 export function fetchJobs(f: Filters, page: number) {
   const p = new URLSearchParams();
-  for (const [k, v] of Object.entries({ ...f, page, page_size: 50 })) {
-    if (k === "page_size") continue;
-    if (k === "page") p.set("offset", String((page - 1) * 50));
-    else if (k === "since_hours") p.set("since_hours", String(f.since_hours || "0"));
-    else if (v) p.set(k, String(v));
-  }
+  p.set("offset", String((page - 1) * 50));
   p.set("limit", "50");
+  p.set("it_only", String(f.it_only ?? 1));
+  p.set("since_hours", String(f.since_hours || "0"));
+  for (const [k, v] of Object.entries(f)) {
+    if (k === "it_only" || k === "since_hours") continue;
+    if (v) p.set(k, String(v));
+  }
   return get<{ total: number; jobs: Job[] }>("/api/jobs?" + p.toString());
 }

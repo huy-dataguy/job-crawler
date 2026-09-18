@@ -57,19 +57,24 @@ def parse_listing(html: str) -> list[dict]:
         if tags_box:
             tags = [_txt(a) for a in tags_box.find_all(["span", "a"]) if _txt(a)]
         posted_text = _txt(posted_el).removeprefix("Posted ").removeprefix("Đăng ")
+        title = _txt(title_el)
+        category = _txt(category_el) or (category_el.get("title") if category_el else "")
+        tags_clean = normalize.clean_tags(tags)
         jobs.append(
             {
                 "source": "itviec",
                 "source_id": slug_attr,
-                "title": _txt(title_el),
+                "title": title,
                 "company": _txt(company_el),
                 "url": config.BASE_URL + "it-jobs/" + slug_attr,
                 "city": "Hồ Chí Minh",
                 "salary": _txt(salary_el).replace("Sign in to view salary", "").strip() or "N/A",
                 "experience": "",
                 "exp_min": None,  # itviec card không ghi số năm kinh nghiệm
-                "category": _txt(category_el) or (category_el.get("title") if category_el else ""),
+                "category": category,
                 "tags": normalize.tags_json(tags),
+                "skills": json.dumps(normalize.extract_skills(title, tags_clean, category), ensure_ascii=False),
+                "is_it": 1,  # itviec là site IT thuần
                 "posted_text": posted_text,
                 "posted_at": _posted_iso(posted_text),
             }

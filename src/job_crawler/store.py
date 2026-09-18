@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   exp_min       REAL,          -- năm kinh nghiệm tối thiểu (số); NULL = nguồn không ghi
   category      TEXT,
   tags          TEXT,          -- JSON array (chỉ tag kỹ năng, đã loại tag trùng experience)
+  skills        TEXT,          -- JSON array skill IT chuẩn (bóc từ title+tags+category)
+  is_it         INTEGER NOT NULL DEFAULT 1,  -- 1 = job IT, 0 = non-IT (chủ yếu topcv)
   posted_text   TEXT,
   posted_at     TEXT,          -- ISO 8601 (ước tính từ "N hours ago")
   first_seen_at TEXT NOT NULL,
@@ -49,11 +51,11 @@ CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs (posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs (category);
 CREATE INDEX IF NOT EXISTS idx_jobs_exp ON jobs (exp_min);
 
--- Full-text search cho ô tìm từ khóa: title + company + category + tags.
+-- Full-text search cho ô tìm từ khóa: title + company + category + tags + skills.
 -- Bảng FTS standalone (KHÔNG dùng content-sync + trigger: trigger 'delete'
 -- với dữ liệu index từ schema cũ từng gây corrupt index khi UPDATE).
 CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
-  title, company, category, tags
+  title, company, category, tags, skills
 );
 """
 
@@ -63,14 +65,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA_TABLES)
-    # Migration nhẹ cho DB cũ: thêm cột exp_min nếu thiếu (phải trước index/trigger)
+    # Migration nhẹ cho DB cũ: thêm cột mới nếu thiếu (phải trước index/FTS)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
-    if "exp_min" not in cols:
-        conn.execute("ALTER TABLE jobs ADD COLUMN exp_min REAL")
+    for col, ddl in [("exp_min", "REAL"),
+                     ("skills", "TEXT"),
+                     ("is_it", "INTEGER NOT NULL DEFAULT 1")]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
     # Drop FTS cũ nếu là bản content-sync/trigger (từng gây corrupt khi UPDATE)
+    # hoặc thiếu cột skills (bản phân loại IT)
     fts_sql = conn.execute(
         "SELECT sql FROM sqlite_master WHERE name='jobs_fts'").fetchone()
-    if fts_sql and ("tags_text" in (fts_sql[0] or "") or "content=" in (fts_sql[0] or "")):
+    if fts_sql and ("tags_text" in (fts_sql[0] or "") or "content=" in (fts_sql[0] or "")
+                    or ", skills" not in (fts_sql[0] or "")):
         conn.executescript("""
             DROP TRIGGER IF EXISTS jobs_fts_ai;
             DROP TRIGGER IF EXISTS jobs_fts_ad;
@@ -83,8 +90,8 @@ def connect(db_path: Path) -> sqlite3.Connection:
     n_fts = conn.execute("SELECT count(*) FROM jobs_fts").fetchone()[0]
     if n_jobs and not n_fts:
         conn.execute(
-            "INSERT INTO jobs_fts(rowid, title, company, category, tags)"
-            " SELECT rowid, title, company, category, tags FROM jobs")
+            "INSERT INTO jobs_fts(rowid, title, company, category, tags, skills)"
+            " SELECT rowid, title, company, category, tags, skills FROM jobs")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.commit()
     return conn
@@ -96,7 +103,8 @@ def now_iso() -> str:
 
 _JOB_COLS = [
     "source", "source_id", "title", "company", "url", "city", "salary",
-    "experience", "exp_min", "category", "tags", "posted_text", "posted_at",
+    "experience", "exp_min", "category", "tags", "skills", "is_it",
+    "posted_text", "posted_at",
 ]
 
 
@@ -104,8 +112,10 @@ def _sync_fts(conn: sqlite3.Connection, rowid: int, job: dict) -> None:
     """Sync tay 1 doc vào FTS standalone (delete theo rowid + insert lại)."""
     conn.execute("DELETE FROM jobs_fts WHERE rowid=?", (rowid,))
     conn.execute(
-        "INSERT INTO jobs_fts(rowid, title, company, category, tags) VALUES (?,?,?,?,?)",
-        (rowid, job.get("title"), job.get("company"), job.get("category"), job.get("tags")),
+        "INSERT INTO jobs_fts(rowid, title, company, category, tags, skills)"
+        " VALUES (?,?,?,?,?,?)",
+        (rowid, job.get("title"), job.get("company"), job.get("category"),
+         job.get("tags"), job.get("skills")),
     )
 
 

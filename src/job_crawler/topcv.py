@@ -99,11 +99,13 @@ def parse_listing(html: str) -> list[dict]:
                 posted_text = t
                 break
         href = title_el["href"] if title_el and title_el.has_attr("href") else ""
+        title = title_el.get_text(" ", strip=True) if title_el else ""
+        tags_clean = normalize.clean_tags(raw_tags)
         jobs.append(
             {
                 "source": "topcv",
                 "source_id": jid,
-                "title": title_el.get_text(" ", strip=True) if title_el else "",
+                "title": title,
                 "company": company_el.get_text(" ", strip=True) if company_el else "",
                 "url": href.split("?")[0] if href.startswith("http") else f"https://www.topcv.vn{href}",
                 "city": city_el.get_text(" ", strip=True) if city_el else "",
@@ -112,6 +114,8 @@ def parse_listing(html: str) -> list[dict]:
                 "exp_min": normalize.parse_exp_min(exp_text),
                 "category": "",
                 "tags": normalize.tags_json(raw_tags),
+                "skills": json.dumps(normalize.extract_skills(title, tags_clean), ensure_ascii=False),
+                "is_it": 1 if normalize.is_it_job(title, tags_clean, "", "topcv") else 0,
                 "posted_text": posted_text,
                 "posted_at": _posted_iso(posted_text),
             }

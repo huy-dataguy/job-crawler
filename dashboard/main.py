@@ -50,8 +50,10 @@ if FRONTEND_DIST.is_dir():
 @app.get("/api/jobs")
 def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
              q: str = "", category: str = "", exp: str = "", tag: str = "",
+             skill: str = "", it_only: int = 1,
              since_hours: int = 0, sort: str = "auto"):
-    """q: full-text search (nhiều từ = AND, vd 'java backend'); exp: bucket '0'..'4','5+'."""
+    """q: full-text search (nhiều từ = AND, vd 'java backend'); exp: bucket '0'..'4','5+';
+    skill: kỹ năng IT chuẩn (vd 'Java'); it_only=1: chỉ job IT."""
     conn = db()
     use_fts = bool(q.strip())
     if use_fts:
@@ -60,6 +62,8 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     else:
         where, params = ["1=1"], []
         frm = "jobs"
+    if it_only:
+        where.append("jobs.is_it = 1" if use_fts else "is_it = 1")
     if source:
         where.append("source=?")
         params.append(source)
@@ -73,6 +77,9 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     if tag:
         where.append("tags LIKE ?")
         params.append(_q_like(f'"{tag}"'))
+    if skill:
+        where.append("skills LIKE ?")
+        params.append(_q_like(f'"{skill}"'))
     if since_hours:
         where.append("posted_at >= ?")
         params.append((datetime.now() - timedelta(hours=since_hours)).isoformat())
@@ -87,15 +94,16 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     rows = conn.execute(
         f"""SELECT jobs.source, jobs.source_id, jobs.title, jobs.company, jobs.url,
                    jobs.city, jobs.salary, jobs.experience, jobs.exp_min, jobs.category,
-                   jobs.tags, jobs.posted_text, jobs.posted_at, jobs.first_seen_at,
-                   jobs.last_seen_at, jobs.is_new
+                   jobs.tags, jobs.skills, jobs.is_it, jobs.posted_text, jobs.posted_at,
+                   jobs.first_seen_at, jobs.last_seen_at, jobs.is_new
             FROM {frm} WHERE {where_s} ORDER BY {order} LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
     conn.close()
     return JSONResponse({
         "total": total,
-        "jobs": [{**dict(r), "tags": json.loads(r["tags"] or "[]")} for r in rows],
+        "jobs": [{**dict(r), "tags": json.loads(r["tags"] or "[]"),
+                  "skills": json.loads(r["skills"] or "[]")} for r in rows],
     })
 
 
@@ -131,12 +139,19 @@ def api_meta():
     """Danh sách facets cho filter UI."""
     conn = db()
     tag_counts: dict[str, int] = {}
-    for (tags_json,) in conn.execute("SELECT tags FROM jobs WHERE tags != ''"):
+    for (tags_json,) in conn.execute("SELECT tags FROM jobs WHERE is_it=1 AND tags != ''"):
         try:
             for t in json.loads(tags_json or "[]"):
                 t = t.strip()
                 if t and len(t) > 2:
                     tag_counts[t] = tag_counts.get(t, 0) + 1
+        except json.JSONDecodeError:
+            continue
+    skill_counts: dict[str, int] = {}
+    for (skills_json,) in conn.execute("SELECT skills FROM jobs WHERE is_it=1 AND skills != ''"):
+        try:
+            for s in json.loads(skills_json or "[]"):
+                skill_counts[s] = skill_counts.get(s, 0) + 1
         except json.JSONDecodeError:
             continue
     out = {
@@ -155,6 +170,10 @@ def api_meta():
         ],
         "top_tags": [{"name": k, "n": v} for k, v in
                      sorted(tag_counts.items(), key=lambda kv: kv[1], reverse=True)[:40]],
+        "top_skills": [{"name": k, "n": v} for k, v in
+                       sorted(skill_counts.items(), key=lambda kv: kv[1], reverse=True)[:40]],
+        "it_count": conn.execute("SELECT count(*) FROM jobs WHERE is_it=1").fetchone()[0],
+        "non_it_count": conn.execute("SELECT count(*) FROM jobs WHERE is_it=0").fetchone()[0],
     }
     conn.close()
     return out
@@ -189,6 +208,7 @@ def api_stats():
         [(datetime.now() - timedelta(hours=24)).isoformat()],
     ).fetchone()
     out = {"total": total, "active": active, "new_24h": last24,
+           "it_total": conn.execute("SELECT count(*) FROM jobs WHERE is_it=1").fetchone()[0],
            "generated_at": datetime.now().isoformat(timespec="seconds")}
     for label, sql in {
         "topcv_top_exp": """SELECT
