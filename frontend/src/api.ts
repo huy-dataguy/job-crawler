@@ -1,7 +1,7 @@
 export type Meta = {
   sources: string[];
   categories: { name: string; n: number }[];
-  experience: { name: string; n: number }[];
+  experience: { value: string; name: string; n: number }[];
   top_tags: { name: string; n: number }[];
 };
 
@@ -14,6 +14,7 @@ export type Job = {
   city: string;
   salary: string;
   experience: string;
+  exp_min: number | null;
   category: string;
   tags: string[];
   posted_text: string;

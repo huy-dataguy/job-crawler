@@ -57,7 +57,7 @@ export default function App() {
             <input
               value={searchInput}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="🔍 Tìm title, công ty… (vd: java, devops, back-end)"
+              placeholder="🔍 Từ khóa: java backend, tester manual… (nhiều từ = phải có đủ)"
               className="w-full md:w-96 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             {clearCount > 0 && (

@@ -13,6 +13,7 @@ import time
 from bs4 import BeautifulSoup
 
 from . import config
+from . import normalize
 from .itviec import _posted_iso
 
 def _resolve_chrome() -> str:
@@ -81,7 +82,16 @@ def parse_listing(html: str) -> list[dict]:
         salary_el = card.select_one("label.salary")
         exp_el = card.select_one("label.exp span")
         city_el = card.select_one(".city-text")
-        tags = [_t.get_text(" ", strip=True) for _t in card.select("span.item-tag")]
+        # Tags: ưu tiên data-original-title (bản đầy đủ, không bị cắt "…");
+        # chip "+N" (remaining-items) giấu nốt list trong data-original-title, tách theo dấu phẩy.
+        raw_tags: list[str] = []
+        for _t in card.select("span.item-tag"):
+            full = (_t.get("data-original-title") or "").strip()
+            raw_tags.append(full or _t.get_text(" ", strip=True))
+        for _r in card.select("span.remaining-items"):
+            extra = (_r.get("data-original-title") or "").strip()
+            raw_tags.extend([p.strip() for p in extra.split(",") if p.strip()])
+        exp_text = exp_el.get_text(" ", strip=True) if exp_el else ""
         posted_text = ""
         for sp in card.select("span, label"):
             t = sp.get_text(" ", strip=True)
@@ -98,9 +108,10 @@ def parse_listing(html: str) -> list[dict]:
                 "url": href.split("?")[0] if href.startswith("http") else f"https://www.topcv.vn{href}",
                 "city": city_el.get_text(" ", strip=True) if city_el else "",
                 "salary": salary_el.get_text(" ", strip=True) if salary_el else "",
-                "experience": exp_el.get_text(" ", strip=True) if exp_el else "",
+                "experience": exp_text,
+                "exp_min": normalize.parse_exp_min(exp_text),
                 "category": "",
-                "tags": json.dumps([t for t in tags if t], ensure_ascii=False),
+                "tags": normalize.tags_json(raw_tags),
                 "posted_text": posted_text,
                 "posted_at": _posted_iso(posted_text),
             }

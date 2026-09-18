@@ -8,7 +8,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-_SCHEMA = """
+_SCHEMA_TABLES = """
 CREATE TABLE IF NOT EXISTS jobs (
   source        TEXT NOT NULL,
   source_id     TEXT NOT NULL,
@@ -18,8 +18,9 @@ CREATE TABLE IF NOT EXISTS jobs (
   city          TEXT,
   salary        TEXT,
   experience    TEXT,
+  exp_min       REAL,          -- năm kinh nghiệm tối thiểu (số); NULL = nguồn không ghi
   category      TEXT,
-  tags          TEXT,          -- JSON array
+  tags          TEXT,          -- JSON array (chỉ tag kỹ năng, đã loại tag trùng experience)
   posted_text   TEXT,
   posted_at     TEXT,          -- ISO 8601 (ước tính từ "N hours ago")
   first_seen_at TEXT NOT NULL,
@@ -29,9 +30,6 @@ CREATE TABLE IF NOT EXISTS jobs (
   is_new        INTEGER NOT NULL DEFAULT 1,
   PRIMARY KEY (source, source_id)
 );
-CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs (posted_at DESC);
-CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs (category);
-
 CREATE TABLE IF NOT EXISTS crawl_runs (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   source        TEXT NOT NULL,
@@ -46,13 +44,49 @@ CREATE TABLE IF NOT EXISTS crawl_runs (
 );
 """
 
+_SCHEMA_REST = """
+CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs (posted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs (category);
+CREATE INDEX IF NOT EXISTS idx_jobs_exp ON jobs (exp_min);
+
+-- Full-text search cho ô tìm từ khóa: title + company + category + tags.
+-- Bảng FTS standalone (KHÔNG dùng content-sync + trigger: trigger 'delete'
+-- với dữ liệu index từ schema cũ từng gây corrupt index khi UPDATE).
+CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
+  title, company, category, tags
+);
+"""
+
 
 def connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.executescript(_SCHEMA)
+    conn.executescript(_SCHEMA_TABLES)
+    # Migration nhẹ cho DB cũ: thêm cột exp_min nếu thiếu (phải trước index/trigger)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+    if "exp_min" not in cols:
+        conn.execute("ALTER TABLE jobs ADD COLUMN exp_min REAL")
+    # Drop FTS cũ nếu là bản content-sync/trigger (từng gây corrupt khi UPDATE)
+    fts_sql = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE name='jobs_fts'").fetchone()
+    if fts_sql and ("tags_text" in (fts_sql[0] or "") or "content=" in (fts_sql[0] or "")):
+        conn.executescript("""
+            DROP TRIGGER IF EXISTS jobs_fts_ai;
+            DROP TRIGGER IF EXISTS jobs_fts_ad;
+            DROP TRIGGER IF EXISTS jobs_fts_au;
+            DROP TABLE IF EXISTS jobs_fts;
+        """)
+    conn.executescript(_SCHEMA_REST)
+    # Backfill FTS standalone cho dữ liệu hiện có
+    n_jobs = conn.execute("SELECT count(*) FROM jobs").fetchone()[0]
+    n_fts = conn.execute("SELECT count(*) FROM jobs_fts").fetchone()[0]
+    if n_jobs and not n_fts:
+        conn.execute(
+            "INSERT INTO jobs_fts(rowid, title, company, category, tags)"
+            " SELECT rowid, title, company, category, tags FROM jobs")
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.commit()
     return conn
 
 
@@ -62,38 +96,48 @@ def now_iso() -> str:
 
 _JOB_COLS = [
     "source", "source_id", "title", "company", "url", "city", "salary",
-    "experience", "category", "tags", "posted_text", "posted_at",
+    "experience", "exp_min", "category", "tags", "posted_text", "posted_at",
 ]
+
+
+def _sync_fts(conn: sqlite3.Connection, rowid: int, job: dict) -> None:
+    """Sync tay 1 doc vào FTS standalone (delete theo rowid + insert lại)."""
+    conn.execute("DELETE FROM jobs_fts WHERE rowid=?", (rowid,))
+    conn.execute(
+        "INSERT INTO jobs_fts(rowid, title, company, category, tags) VALUES (?,?,?,?,?)",
+        (rowid, job.get("title"), job.get("company"), job.get("category"), job.get("tags")),
+    )
 
 
 def upsert_job(conn: sqlite3.Connection, job: dict) -> str:
     """INSERT hoặc UPDATE last_seen. Trả về 'new' | 'updated'."""
     ts = now_iso()
     cur = conn.execute(
-        "SELECT 1, is_new FROM jobs WHERE source=? AND source_id=?",
+        "SELECT rowid FROM jobs WHERE source=? AND source_id=?",
         (job["source"], job["source_id"]),
     ).fetchone()
     if cur is None:
         cols = _JOB_COLS + ["first_seen_at", "last_seen_at"]
         vals = [job.get(c) for c in _JOB_COLS] + [ts, ts]
-        conn.execute(
+        cur = conn.execute(
             f"INSERT INTO jobs ({', '.join(cols)}) VALUES ({', '.join('?' * len(vals))})",
             vals,
         )
-        conn.execute("UPDATE jobs SET is_new=0 WHERE source=? AND source_id=? AND is_new=1",
-                     (job["source"], job["source_id"]))
+        _sync_fts(conn, int(cur.lastrowid), job)
         return "new"
     conn.execute(
         """UPDATE jobs SET title=?, company=?, url=?, city=?, salary=?, experience=?,
-             category=?, tags=?, posted_text=?, posted_at=?, last_seen_at=?,
+             exp_min=?, category=?, tags=?, posted_text=?, posted_at=?, last_seen_at=?,
              seen_count=seen_count+1, is_active=1 WHERE source=? AND source_id=?""",
         (
             job.get("title"), job.get("company"), job.get("url"), job.get("city"),
-            job.get("salary"), job.get("experience"), job.get("category"),
+            job.get("salary"), job.get("experience"), job.get("exp_min"),
+            job.get("category"),
             job.get("tags"), job.get("posted_text"), job.get("posted_at"),
             ts, job["source"], job["source_id"],
         ),
     )
+    _sync_fts(conn, int(cur[0]), job)
     return "updated"
 
 

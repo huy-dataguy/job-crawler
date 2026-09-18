@@ -10,6 +10,7 @@ from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 from . import config
+from . import normalize
 
 _S = requests.Session(impersonate="chrome124")
 
@@ -66,8 +67,9 @@ def parse_listing(html: str) -> list[dict]:
                 "city": "Hồ Chí Minh",
                 "salary": _txt(salary_el).replace("Sign in to view salary", "").strip() or "N/A",
                 "experience": "",
+                "exp_min": None,  # itviec card không ghi số năm kinh nghiệm
                 "category": _txt(category_el) or (category_el.get("title") if category_el else ""),
-                "tags": json.dumps(tags, ensure_ascii=False),
+                "tags": normalize.tags_json(tags),
                 "posted_text": posted_text,
                 "posted_at": _posted_iso(posted_text),
             }

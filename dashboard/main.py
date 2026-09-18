@@ -50,34 +50,46 @@ if FRONTEND_DIST.is_dir():
 @app.get("/api/jobs")
 def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
              q: str = "", category: str = "", exp: str = "", tag: str = "",
-             since_hours: int = 0, sort: str = "posted"):
+             since_hours: int = 0, sort: str = "auto"):
+    """q: full-text search (nhiều từ = AND, vd 'java backend'); exp: bucket '0'..'4','5+'."""
     conn = db()
-    where, params = ["1=1"], []
+    use_fts = bool(q.strip())
+    if use_fts:
+        where, params = ["jobs_fts MATCH ?"], [_fts_query(q)]
+        frm = "jobs JOIN jobs_fts ON jobs.rowid = jobs_fts.rowid"
+    else:
+        where, params = ["1=1"], []
+        frm = "jobs"
     if source:
         where.append("source=?")
         params.append(source)
-    if q:
-        where.append("(title LIKE ? OR company LIKE ?)")
-        params += [_q_like(q), _q_like(q)]
     if category:
         where.append("category=?")
         params.append(category)
     if exp:
-        where.append("experience=?")
-        params.append(exp)
+        cond = _exp_cond(exp)
+        if cond:
+            where.append(cond)
     if tag:
         where.append("tags LIKE ?")
         params.append(_q_like(f'"{tag}"'))
     if since_hours:
         where.append("posted_at >= ?")
         params.append((datetime.now() - timedelta(hours=since_hours)).isoformat())
-    order = "posted_at DESC NULLS LAST" if sort != "new" else "last_seen_at DESC"
+    if sort == "posted" or (sort == "auto" and not use_fts):
+        order = "posted_at DESC NULLS LAST"
+    elif sort == "new":
+        order = "last_seen_at DESC"
+    else:
+        order = "bm25(jobs_fts)"  # relevance khi search từ khóa
     where_s = " AND ".join(where)
-    total = conn.execute(f"SELECT count(*) FROM jobs WHERE {where_s}", params).fetchone()[0]
+    total = conn.execute(f"SELECT count(*) FROM {frm} WHERE {where_s}", params).fetchone()[0]
     rows = conn.execute(
-        f"""SELECT source, source_id, title, company, url, city, salary, experience,
-                   category, tags, posted_text, posted_at, first_seen_at, last_seen_at
-            FROM jobs WHERE {where_s} ORDER BY {order} LIMIT ? OFFSET ?""",
+        f"""SELECT jobs.source, jobs.source_id, jobs.title, jobs.company, jobs.url,
+                   jobs.city, jobs.salary, jobs.experience, jobs.exp_min, jobs.category,
+                   jobs.tags, jobs.posted_text, jobs.posted_at, jobs.first_seen_at,
+                   jobs.last_seen_at, jobs.is_new
+            FROM {frm} WHERE {where_s} ORDER BY {order} LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
     conn.close()
@@ -89,6 +101,29 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
 
 def _q_like(x: str) -> str:
     return f"%{x}%"
+
+
+def _fts_query(q: str) -> str:
+    """'java backend' → '"java" AND "backend"' (match mọi từ)."""
+    terms = [t.strip('"') for t in q.split() if t.strip('" ')][:8]
+    return " AND ".join(f'"{t}"' for t in terms)
+
+
+_EXP_BUCKETS = [
+    ("0", "Fresher / Không YC", "= 0"),
+    ("1", "1 năm", "= 1"),
+    ("2", "2 năm", "= 2"),
+    ("3", "3 năm", "= 3"),
+    ("4", "4 năm", "= 4"),
+    ("5+", "5+ năm", ">= 5"),
+]
+
+
+def _exp_cond(bucket: str) -> str | None:
+    for value, _name, cond in _EXP_BUCKETS:
+        if value == bucket:
+            return f"exp_min {cond}"
+    return None
 
 
 @app.get("/api/meta")
@@ -113,10 +148,10 @@ def api_meta():
             )
         ],
         "experience": [
-            {"name": r["experience"], "n": r["n"]}
-            for r in conn.execute(
-                "SELECT experience, count(*) n FROM jobs WHERE experience != '' GROUP BY experience ORDER BY n DESC LIMIT 20"
-            )
+            {"value": value, "name": name, "n": conn.execute(
+                f"SELECT count(*) FROM jobs WHERE exp_min IS NOT NULL AND exp_min {cond}"
+            ).fetchone()[0]}
+            for value, name, cond in _EXP_BUCKETS
         ],
         "top_tags": [{"name": k, "n": v} for k, v in
                      sorted(tag_counts.items(), key=lambda kv: kv[1], reverse=True)[:40]],
@@ -156,7 +191,11 @@ def api_stats():
     out = {"total": total, "active": active, "new_24h": last24,
            "generated_at": datetime.now().isoformat(timespec="seconds")}
     for label, sql in {
-        "topcv_top_exp": "SELECT experience, count(*) n FROM jobs WHERE source='topcv' GROUP BY experience ORDER BY n DESC",
+        "topcv_top_exp": """SELECT
+               CASE WHEN exp_min <= 0 THEN '0' WHEN exp_min >= 5 THEN '5+'
+                    ELSE CAST(CAST(exp_min AS INT) AS TEXT) END AS experience,
+               count(*) n FROM jobs WHERE exp_min IS NOT NULL
+               GROUP BY 1 ORDER BY n DESC""",
         "itviec_top_categories": "SELECT category, count(*) n FROM jobs WHERE source='itviec' AND category != '' GROUP BY category ORDER BY n DESC LIMIT 10",
     }.items():
         out[label] = [dict(r) for r in conn.execute(sql)]

@@ -46,7 +46,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
 } | undefined; onPick: (name: string) => void }) {
   const data = stats?.topcv_top_exp || [];
   return (
-    <Panel title="Kinh nghiệm yêu cầu (topcv — click để lọc)">
+    <Panel title="Năm kinh nghiệm — click để lọc">
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} onClick={(s: any) => s?.activeLabel && onPick(s.activeLabel)}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />

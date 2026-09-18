@@ -55,14 +55,14 @@ export default function Sidebar({ filters, setFilters, meta }: {
         </Card>
       )}
 
-      {/* Experience */}
+      {/* Experience — bucket số năm, lọc chính xác theo exp_min */}
       {meta && (
-        <Card title="Kinh nghiệm (topcv)">
+        <Card title="Năm kinh nghiệm">
           <ul className="space-y-1 max-h-52 overflow-y-auto pr-1">
             <Item active={!filters.exp} onClick={() => setFilters({ ...filters, exp: "" })}>Tất cả</Item>
             {meta.experience.map((e) => (
-              <Item key={e.name} active={filters.exp === e.name}
-                    onClick={() => setFilters({ ...filters, exp: e.name })}>
+              <Item key={e.value} active={filters.exp === e.value}
+                    onClick={() => setFilters({ ...filters, exp: e.value })}>
                 {e.name} <span className="text-slate-400">{e.n}</span>
               </Item>
             ))}

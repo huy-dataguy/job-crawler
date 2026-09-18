@@ -1,5 +1,11 @@
 import type { Job } from "./api";
 
+// NEW = hệ thống mới thấy tin này trong 72 giờ qua (tính từ first_seen_at)
+function isFresh(firstSeen: string) {
+  const t = new Date(firstSeen).getTime();
+  return !isNaN(t) && Date.now() - t < 72 * 3600 * 1000;
+}
+
 export default function JobTable({ jobs, loading }: { jobs: Job[] | undefined; loading: boolean }) {
   if (loading) return <div className="text-slate-400 text-center py-16">Đang tải…</div>;
   if (!jobs?.length) return <div className="text-slate-400 text-center py-16">Không có job nào khớp filter.</div>;
@@ -12,7 +18,7 @@ export default function JobTable({ jobs, loading }: { jobs: Job[] | undefined; l
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-0.5">
-                  {j.is_new ? <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 text-[10px] font-semibold">NEW</span> : null}
+                  {isFresh(j.first_seen_at) ? <span className="px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-700 text-[10px] font-semibold">NEW</span> : null}
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium shrink-0
                     ${j.source === "itviec" ? "bg-orange-100 text-orange-700" : "bg-rose-100 text-rose-700"}`}>
                     {j.source}
