@@ -8,24 +8,30 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "@fontsource/ibm-plex-mono/600.css";
 
+/* Theme "đêm săn việc": nền chàm đêm + ember/violet/mint.
+   Tránh default đen-tuyền + acid-green: nền là chàm #0D1021, accent là
+   cặp ember→violet, mint chỉ dùng cho tiền/tươi mới. */
 @theme {
-  --color-paper: #f7f5f0;
-  --color-paper-deep: #efebe1;
-  --color-card: #fffdf9;
-  --color-ink: #1b1e23;
-  --color-ink-soft: #4b5058;
-  --color-ink-faint: #8b9099;
-  --color-line: #e2ddcf;
-  --color-cobalt: #1e40af;
-  --color-cobalt-deep: #17317f;
-  --color-moss: #0e6b5e;
+  --color-night: #0d1021;
+  --color-panel: #161a30;
+  --color-panel-deep: #10142a;
+  --color-edge: #2a3052;
+  --color-mist: #f4f5fa;
+  --color-dim: #a7acc2;
+  --color-faint: #6f7590;
+  --color-ember: #ff5a3c;
+  --color-ember-deep: #e04427;
+  --color-violet: #8b7cff;
+  --color-mint: #34d399;
+  --color-sun: #ffc531;
 
   --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
 html {
-  background: var(--color-paper);
+  background: var(--color-night);
+  color-scheme: dark;
 }
 
 body {
@@ -33,20 +39,27 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* dải tin mới cuộn ngang — thanh cuộn mảnh */
+/* quầng sáng header — điểm trang trí duy nhất */
+.hero-glow {
+  background:
+    radial-gradient(560px 160px at 12% -40px, rgba(139, 124, 255, 0.28), transparent 70%),
+    radial-gradient(520px 150px at 88% -30px, rgba(255, 90, 60, 0.22), transparent 70%);
+}
+
+/* dải tin mới cuộn ngang */
 .strip-scroll {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-line) transparent;
+  scrollbar-color: var(--color-edge) transparent;
 }
 .strip-scroll::-webkit-scrollbar {
   height: 6px;
 }
 .strip-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-line);
+  background: var(--color-edge);
   border-radius: 3px;
 }
 
 ::selection {
-  background: #1e40af;
+  background: #ff5a3c;
   color: #fff;
 }

@@ -18,7 +18,7 @@ const DEFAULT_FILTERS: Filters = {
 };
 
 const SOURCE_DOT: Record<string, string> = {
-  itviec: "bg-orange-500", topcv: "bg-rose-500", topdev: "bg-sky-500",
+  itviec: "bg-[#ff9e4a]", topcv: "bg-[#ff6b8a]", topdev: "bg-[#4cc3ff]",
 };
 
 // Sort thời gian chỉ còn 1 nghĩa duy nhất: theo NGÀY ĐĂNG (posted_at).
@@ -76,17 +76,17 @@ export default function App() {
   const dateLine = `T${today.getDay() === 0 ? "CN" : today.getDay() + 1} · ${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}`;
 
   return (
-    <div className="min-h-screen bg-paper text-ink">
+    <div className="min-h-screen bg-night text-mist">
       {/* Command bar */}
-      <header className="bg-card border-b border-line sticky top-0 z-10">
+      <header className="bg-panel/95 backdrop-blur border-b border-edge sticky top-0 z-10 hero-glow">
         <div className="max-w-[1200px] mx-auto px-5 pt-4 pb-3">
           <div className="flex items-baseline justify-between gap-4 flex-wrap">
             <div className="flex items-center gap-3">
-              <span className="w-8 h-8 rounded-[10px] bg-cobalt text-white font-extrabold flex items-center justify-center text-lg">J</span>
+              <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-ember to-violet text-white font-extrabold flex items-center justify-center text-lg shadow-[0_0_18px_rgba(255,90,60,0.45)]">J</span>
               <h1 className="text-xl font-extrabold tracking-tight">IT Jobs HCMC</h1>
-              <span className="font-mono text-xs text-ink-faint hidden md:inline">{dateLine}</span>
+              <span className="font-mono text-xs text-faint hidden md:inline">{dateLine}</span>
             </div>
-            <p className="font-mono text-xs text-ink-faint">
+            <p className="font-mono text-xs text-faint">
               {total} việc · {stats.data?.new_24h ?? "–"} mới 24h · crawl 9h/11h/14h/16h/21h
             </p>
           </div>
@@ -95,13 +95,13 @@ export default function App() {
               value={searchInput}
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Từ khóa: java backend, tester manual…"
-              className="flex-1 min-w-52 bg-paper border border-line rounded-[10px] px-4 py-2.5 text-[15px] placeholder:text-ink-faint focus:outline-none focus:border-cobalt"
+              className="flex-1 min-w-52 bg-night border border-edge rounded-[10px] px-4 py-2.5 text-[15px] placeholder:text-faint focus:outline-none focus:border-ember"
             />
-            <div className="flex rounded-[10px] border border-line overflow-hidden" role="group" aria-label="Nguồn">
+            <div className="flex rounded-[10px] border border-edge overflow-hidden" role="group" aria-label="Nguồn">
               {["", "itviec", "topcv", "topdev"].map((s) => (
                 <button key={s || "all"}
                   onClick={() => setF({ ...filters, source: s })}
-                  className={`px-3 py-2.5 text-sm font-medium border-r border-line last:border-0 transition ${filters.source === s ? "bg-ink text-paper" : "bg-card text-ink-soft hover:bg-paper-deep"}`}>
+                  className={`px-3 py-2.5 text-sm font-medium border-r border-edge last:border-0 transition ${filters.source === s ? "bg-gradient-to-r from-ember to-[#ff8a3c] text-white font-semibold" : "bg-panel text-dim hover:text-mist"}`}>
                   {s || "Mọi nguồn"}
                 </button>
               ))}
@@ -109,14 +109,14 @@ export default function App() {
             <select
               value={filters.sort}
               onChange={(e) => setF({ ...filters, sort: e.target.value })}
-              className="bg-card border border-line rounded-[10px] px-3 py-2.5 text-sm text-ink-soft focus:outline-none focus:border-cobalt"
+              className="bg-panel border border-edge rounded-[10px] px-3 py-2.5 text-sm text-dim focus:outline-none focus:border-ember"
               aria-label="Sắp xếp">
               {SORTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
             </select>
             {clearCount > 0 && (
               <button
                 onClick={() => { setSearchInput(""); setF(DEFAULT_FILTERS); }}
-                className="font-mono text-xs text-ink-faint hover:text-ink whitespace-nowrap">
+                className="font-mono text-xs text-faint hover:text-mist whitespace-nowrap">
                 xoá {clearCount} lọc
               </button>
             )}
@@ -132,10 +132,10 @@ export default function App() {
               <h2 className="font-bold">
                 Mới đăng nhất
                 {SINCE_LABEL[filters.since_hours] && (
-                  <span className="font-normal text-sm text-ink-soft ml-2">{SINCE_LABEL[filters.since_hours]}</span>
+                  <span className="font-normal text-sm text-dim ml-2">{SINCE_LABEL[filters.since_hours]}</span>
                 )}
               </h2>
-              <span className="font-mono text-xs text-ink-faint">kéo ngang →</span>
+              <span className="font-mono text-xs text-faint">kéo ngang →</span>
             </div>
             <div className="strip-scroll flex gap-3 overflow-x-auto pb-2">
               {fresh.map((j, i) => (
@@ -152,15 +152,15 @@ export default function App() {
             <div className="flex items-baseline justify-between mb-2">
               <h2 className="font-bold">
                 Tất cả việc làm
-                <span className="font-mono font-normal text-sm text-ink-faint ml-2">{total}</span>
+                <span className="font-mono font-normal text-sm text-faint ml-2">{total}</span>
               </h2>
               {pages > 1 && (
                 <div className="flex items-center gap-2 font-mono text-sm">
                   <button disabled={page <= 1} onClick={() => setPage(page - 1)}
-                    className="px-2 py-1 rounded-[8px] border border-line disabled:opacity-30 hover:bg-paper-deep">←</button>
-                  <span className="text-ink-faint">{page}/{pages}</span>
+                    className="px-2 py-1 rounded-[8px] border border-edge disabled:opacity-30 hover:bg-white/5">←</button>
+                  <span className="text-faint">{page}/{pages}</span>
                   <button disabled={page >= pages} onClick={() => setPage(page + 1)}
-                    className="px-2 py-1 rounded-[8px] border border-line disabled:opacity-30 hover:bg-paper-deep">→</button>
+                    className="px-2 py-1 rounded-[8px] border border-edge disabled:opacity-30 hover:bg-white/5">→</button>
                 </div>
               )}
             </div>
@@ -179,7 +179,7 @@ export default function App() {
           <SalaryChart jobs={jobsQ.data?.jobs ?? []} />
         </div>
 
-        <p className="font-mono text-xs text-ink-faint mt-8">
+        <p className="font-mono text-xs text-faint mt-8">
           crawl itviec · topcv · topdev — 9h/11h/14h/16h/21h · /api/jobs · /api/stats · /api/meta · /api/trend
         </p>
       </main>
@@ -207,14 +207,14 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
   if (pills.length === 0) return null;
   return (
     <div className="flex items-center gap-1.5 flex-wrap mb-4" aria-live="polite">
-      <span className="font-mono text-xs text-ink-faint">đang lọc:</span>
+      <span className="font-mono text-xs text-faint">đang lọc:</span>
       {pills.map((p) => (
         <button key={p.label} onClick={p.clear} title="Bấm để gỡ lọc này"
-          className="px-2.5 py-1 rounded-full text-[13px] bg-ink text-paper hover:bg-cobalt transition">
+          className="px-2.5 py-1 rounded-full text-[13px] bg-gradient-to-r from-ember to-[#ff8a3c] text-white font-semibold hover:brightness-110 transition">
           {p.label} <span aria-hidden>×</span>
         </button>
       ))}
-      <span className="font-mono text-xs text-ink-faint">xếp: {SORTS.find((s) => s.v === filters.sort)?.label.replace("Xếp: ", "")}</span>
+      <span className="font-mono text-xs text-faint">xếp: {SORTS.find((s) => s.v === filters.sort)?.label.replace("Xếp: ", "")}</span>
     </div>
   );
 }
@@ -222,17 +222,17 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
 function FreshCard({ job: j, index }: { job: Job; index: number }) {
   return (
     <a href={j.url} target="_blank" rel="noreferrer"
-       className="shrink-0 w-64 bg-card border border-line rounded-[10px] p-3 hover:border-cobalt transition flex gap-2.5">
-      <span className="font-mono text-2xl font-semibold text-ink-faint/40 select-none">
+       className="shrink-0 w-64 bg-panel border border-edge rounded-[10px] p-3 hover:border-ember transition flex gap-2.5">
+      <span className="font-mono text-2xl font-semibold select-none text-transparent bg-clip-text bg-gradient-to-b from-violet to-ember">
         {String(index + 1).padStart(2, "0")}
       </span>
       <span className="min-w-0">
         <span className="flex items-center gap-1.5 mb-1">
-          <span className={`w-2 h-2 rounded-full ${SOURCE_DOT[j.source] || "bg-ink-faint"}`} />
-          <span className="font-mono text-[11px] text-ink-faint">{(j.posted_at || j.first_seen_at || "").slice(5, 10)}</span>
+          <span className={`w-2 h-2 rounded-full ${SOURCE_DOT[j.source] || "bg-faint"}`} />
+          <span className="font-mono text-[11px] text-faint">{(j.posted_at || j.first_seen_at || "").slice(5, 10)}</span>
         </span>
         <span className="block font-semibold text-sm leading-snug line-clamp-2">{j.title}</span>
-        <span className="block text-[13px] text-ink-soft truncate mt-0.5">{j.company}</span>
+        <span className="block text-[13px] text-dim truncate mt-0.5">{j.company}</span>
       </span>
     </a>
   );

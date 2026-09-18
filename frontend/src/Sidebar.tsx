@@ -88,7 +88,7 @@ export default function Sidebar({ filters, setFilters, meta }: {
             {meta.categories.map((c) => (
               <Item key={c.name} active={filters.category === c.name}
                     onClick={() => setFilters({ ...filters, category: c.name })}>
-                {c.name} <span className="font-mono text-xs text-ink-faint">{c.n}</span>
+                {c.name} <span className="font-mono text-xs text-faint">{c.n}</span>
               </Item>
             ))}
           </ul>
@@ -103,7 +103,7 @@ export default function Sidebar({ filters, setFilters, meta }: {
             {meta.experience.map((e) => (
               <Item key={e.value} active={filters.exp === e.value}
                     onClick={() => setFilters({ ...filters, exp: e.value })}>
-                {e.name} <span className="font-mono text-xs text-ink-faint">{e.n}</span>
+                {e.name} <span className="font-mono text-xs text-faint">{e.n}</span>
               </Item>
             ))}
           </ul>
@@ -130,8 +130,8 @@ export default function Sidebar({ filters, setFilters, meta }: {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-card border border-line rounded-[10px] p-4">
-      <h3 className="font-mono text-xs text-ink-faint mb-2.5">{title}</h3>
+    <div className="bg-panel border border-edge rounded-[10px] p-4">
+      <h3 className="font-mono text-xs text-faint mb-2.5">{title}</h3>
       {children}
     </div>
   );
@@ -143,7 +143,7 @@ function Chip({ active, children, onClick }: {
   return (
     <button onClick={onClick}
       className={`px-2.5 py-1 rounded-full text-[13px] border transition
-        ${active ? "bg-ink text-paper border-ink font-medium" : "bg-transparent text-ink-soft border-line hover:border-ink"}`}>
+        ${active ? "bg-gradient-to-r from-ember to-[#ff8a3c] text-white border-transparent font-semibold" : "bg-transparent text-dim border-edge hover:border-faint hover:text-mist"}`}>
       {children}
     </button>
   );
@@ -156,7 +156,7 @@ function Item({ active, children, onClick }: {
     <li>
       <button onClick={onClick}
         className={`w-full text-left text-sm px-2 py-1.5 rounded-[8px] flex justify-between
-          ${active ? "bg-paper-deep text-ink font-semibold" : "hover:bg-paper-deep/60 text-ink-soft"}`}>
+          ${active ? "bg-white/5 text-mist font-semibold" : "hover:bg-white/5 text-dim"}`}>
         {children}
       </button>
     </li>
