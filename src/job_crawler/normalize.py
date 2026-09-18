@@ -77,6 +77,7 @@ SKILL_CATEGORY: dict[str, str] = {
     "Project Manager": "Project Manager", "Scrum": "Project Manager",
     "UI/UX": "UI/UX Designer", "SAP/ERP": "ERP Consultant",
     "Salesforce/CRM": "CRM Consultant",
+    "WordPress": "Backend Developer", "IT General": "IT General",
 }
 
 # level → exp_min ước tính (dùng cho nguồn không ghi số năm, vd itviec)
@@ -211,8 +212,14 @@ IT_SKILLS: dict[str, list[str]] = {
     "Embedded": ["embedded", "firmware", "iot "],
     "SAP/ERP": ["sap", "erp", "odoo", "netsuite"],
     "Salesforce/CRM": ["salesforce", "crm"],
-    "System Admin": ["system admin", "sysadmin", "it support", "it helpdesk", "network"],
+    "System Admin": ["system admin", "sysadmin", "it support", "it helpdesk", "network",
+                     "support engineer"],
     "Cloud": ["cloud"],
+    "WordPress": ["wordpress"],
+    # Alias chung chung (developer, triển khai…) KHÔNG cho vào đây vì dễ lật
+    # job sale/marketing thành IT — chỉ alias nào chắc chắn mới thêm.
+    "IT General": ["cntt", "công nghệ thông tin", "software engineer", "head of engineering",
+                   "nhân viên lập trình", "điều phối viên it"],
 }
 
 _NON_IT_RE = re.compile(
@@ -230,6 +237,17 @@ _IT_TITLE_RE = re.compile(
     r"technical|solution|architect|cloud|security|system|network|database",
     re.IGNORECASE,
 )
+
+# Role kỹ thuật explicit — đủ mạnh để giữ lại job dù title dính từ non-IT
+# (vd "Presales Engineer", "Cloud Solution Architect" dính chữ "sale"/tư vấn)
+_STRONG_IT_ROLE_RE = re.compile(
+    r"developer|software engineer|presales|s presales|solution architect|"
+    r"support engineer|it support|it helpdesk|head of engineering|"
+    r"nhân viên it|nhân viên lập trình|cntt|"
+    r"tester|devops|data engineer|data analyst|system admin|network admin",
+    re.IGNORECASE,
+)
+
 
 
 def _pad(t: str) -> str:
@@ -249,13 +267,17 @@ def extract_skills(title: str, tags: list[str], category: str = "") -> list[str]
 
 
 def is_it_job(title: str, tags: list[str], category: str, source: str) -> bool:
-    """itviec = 100% IT. TopCV: loại tin non-IT theo title, còn lại cần có skill IT."""
+    """itviec = 100% IT. TopCV:
+    - title dính non-IT (sale/kế toán/marketing/CNC/hành chính…) → chỉ giữ
+      nếu là role kỹ thuật explicit (dev/tester/support/presales/architect/…).
+      Sale phần mềm, telesale, CNC, marketing-AI đều loại.
+    - còn lại: có marker IT hoặc bóc được skill → IT."""
     if source == "itviec":
         return True
     t = title or ""
+    if _NON_IT_RE.search(t):
+        return bool(_STRONG_IT_ROLE_RE.search(t))
     skills = extract_skills(t, tags, category)
-    if _NON_IT_RE.search(t) and not skills:
-        return False
     if _IT_TITLE_RE.search(t):
         return True
     return bool(skills)

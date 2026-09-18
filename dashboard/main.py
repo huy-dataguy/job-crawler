@@ -244,7 +244,7 @@ def api_stats():
                CASE WHEN exp_min <= 0 THEN '0' WHEN exp_min >= 5 THEN '5+'
                     ELSE CAST(CAST(exp_min AS INT) AS TEXT) END AS experience,
                count(*) n FROM jobs WHERE exp_min IS NOT NULL
-               GROUP BY 1 ORDER BY n DESC""",
+               GROUP BY 1 ORDER BY MIN(exp_min)""",
         "itviec_top_categories": "SELECT category, count(*) n FROM jobs WHERE source='itviec' AND category != '' GROUP BY category ORDER BY n DESC LIMIT 10",
     }.items():
         out[label] = [dict(r) for r in conn.execute(sql)]

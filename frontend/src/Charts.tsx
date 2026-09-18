@@ -8,7 +8,7 @@ import { BUCKET_ORDER, salaryBucket } from "./salary";
 export function TrendChart({ trend }: { trend: { date: string; itviec: number; topcv: number }[] | undefined }) {
   const data = (trend || []).map((d) => ({ ...d, total: d.itviec + d.topcv }));
   return (
-    <Panel title="Từ khoá việc mới đăng theo ngày (14 ngày)">
+    <Panel title="Việc mới đăng theo ngày (14 ngày, ước tính từ 'đăng N ngày trước')">
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
