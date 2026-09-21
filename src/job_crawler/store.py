@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS crawl_runs (
 );
 """
 
+_SCHEMA_MARKS = """
+CREATE TABLE IF NOT EXISTS job_marks (
+  source    TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  viewed    INTEGER NOT NULL DEFAULT 0,
+  hidden    INTEGER NOT NULL DEFAULT 0,
+  marked_at TEXT NOT NULL,
+  PRIMARY KEY (source, source_id)
+);
+"""
+
 _SCHEMA_REST = """
 CREATE INDEX IF NOT EXISTS idx_jobs_posted ON jobs (posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs (category);
@@ -91,6 +102,7 @@ def connect(db_path: Path) -> sqlite3.Connection:
             DROP TRIGGER IF EXISTS jobs_fts_au;
             DROP TABLE IF EXISTS jobs_fts;
         """)
+    conn.executescript(_SCHEMA_MARKS)
     conn.executescript(_SCHEMA_REST)
     # Backfill FTS standalone cho dữ liệu hiện có
     n_jobs = conn.execute("SELECT count(*) FROM jobs").fetchone()[0]

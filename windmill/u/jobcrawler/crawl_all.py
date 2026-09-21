@@ -9,8 +9,8 @@ sys.path.insert(0, "/workspace/src")
 
 from job_crawler.pipeline import run_source  # noqa: E402
 
-results = []
 import time  # noqa: E402
+results = []
 for source in ("itviec", "topcv", "topdev"):
     try:
         results.append(run_source(source))

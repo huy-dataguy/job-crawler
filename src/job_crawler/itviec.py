@@ -112,16 +112,19 @@ def _posted_iso(text: str) -> str | None:
     return dt.isoformat(timespec="seconds")
 
 
-def crawl(max_pages: int | None = None) -> list[dict]:
-    """Crawl N trang đầu của listing HCM (việc mới nằm ở các trang đầu)."""
+def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
+    """Crawl N trang đầu của listing HCM (việc mới nằm ở các trang đầu).
+    Trả về (jobs, pages_crawled)."""
     all_jobs: dict[str, dict] = {}
+    pages = 0
     for page in range(1, (max_pages or config.MAX_PAGES_ITVIEC) + 1):
         url = config.LISTING_URL + (f"?page={page}" if page > 1 else "")
         html = fetch_html(url)
         found = parse_listing(html)
         if not found:
             break
+        pages += 1
         for j in found:
             all_jobs[j["source_id"]] = j
         time.sleep(config.DELAY_BETWEEN_REQUESTS)
-    return list(all_jobs.values())
+    return list(all_jobs.values()), pages

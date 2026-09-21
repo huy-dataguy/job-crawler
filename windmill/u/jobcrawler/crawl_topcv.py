@@ -12,7 +12,7 @@ from job_crawler import config, store, topcv  # noqa: E402
 conn = store.connect(config.DB_PATH)
 run_id = store.start_run(conn, "topcv")
 try:
-    jobs = topcv.crawl()
+    jobs, pages = topcv.crawl()
     new = upd = 0
     for j in jobs:
         if store.upsert_job(conn, j) == "new":
@@ -20,7 +20,7 @@ try:
         else:
             upd += 1
     conn.commit()
-    store.finish_run(conn, run_id, status="ok", pages=0, found=len(jobs),
+    store.finish_run(conn, run_id, status="ok", pages=pages, found=len(jobs),
                      new_count=new, updated_count=upd)
     return {"found": len(jobs), "new": new, "updated": upd}
 except Exception:

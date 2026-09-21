@@ -5,6 +5,7 @@ import { fetchJobs, fetchMeta, fetchStats, fetchTrend } from "./api";
 import Sidebar from "./Sidebar";
 import JobTable from "./JobTable";
 import { TrendChart, ExperienceChart, CategoryChart, SalaryChart } from "./Charts";
+import Companies from "./Companies";
 
 const PAGE_SIZE = 50;
 
@@ -14,7 +15,7 @@ declare global {
 
 const DEFAULT_FILTERS: Filters = {
   q: "", source: "", category: "", exp: "", tag: "", skill: "", level: "",
-  salary_min: 0, it_only: 1, since_hours: 0, sort: "auto",
+  salary_min: 0, it_only: 1, since_hours: 0, sort: "auto", show_hidden: 0, company_size: "",
 };
 
 const SOURCE_DOT: Record<string, string> = {
@@ -35,6 +36,7 @@ const SINCE_LABEL: Record<number, string> = {
 };
 
 export default function App() {
+  const [view, setView] = useState<"jobs" | "companies">("jobs");
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
@@ -82,7 +84,7 @@ export default function App() {
   const fresh = (freshQ.data?.jobs ?? []).slice(0, 8);
 
   const clearCount = [filters.q, filters.source, filters.category, filters.exp, filters.tag,
-    filters.skill, filters.level, filters.salary_min ? "1" : "",
+    filters.skill, filters.level, filters.salary_min ? "1" : "", filters.company_size ? "1" : "",
     filters.since_hours ? "1" : ""].filter(Boolean).length;
 
   const today = new Date();
@@ -90,55 +92,80 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-night text-mist">
-      {/* Command bar */}
-      <header className="bg-panel/95 backdrop-blur border-b border-edge sticky top-0 z-10 hero-glow">
-        <div className="max-w-[1760px] mx-auto px-4 md:px-6 pt-4 pb-3">
-          <div className="flex items-baseline justify-between gap-4 flex-wrap">
-            <button onClick={goHome} title="Về trang chủ — xoá hết tìm kiếm và lọc"
-              className="flex items-center gap-3 rounded-[10px] px-1 py-0.5 hover:opacity-85 transition" aria-label="Home — reset tất cả">
-              <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-ember to-violet text-white font-extrabold flex items-center justify-center text-lg shadow-[0_0_18px_rgba(255,90,60,0.45)]">J</span>
-              <h1 className="text-xl font-extrabold tracking-tight">IT Jobs HCMC</h1>
-              <span className="font-mono text-xs text-faint hidden md:inline">{dateLine}</span>
+      {/* Command bar — 2-tier, gọn & đồng nhất */}
+      <header className="bg-panel/95 backdrop-blur border-b border-edge sticky top-0 z-20 hero-glow">
+        <div className="max-w-[1760px] mx-auto px-4 md:px-6">
+          {/* Row 1: brand + view switch + stats */}
+          <div className="flex items-center justify-between gap-3 py-3 border-b border-edge/60">
+            <button onClick={goHome} className="flex items-center gap-3 hover:opacity-85 transition" aria-label="Home">
+              <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-ember to-violet text-white font-extrabold flex items-center justify-center text-lg shadow-[0_0_18px_rgba(255,90,60,0.35)]">J</span>
+              <span className="text-[18px] font-extrabold tracking-tight">IT Jobs HCMC</span>
+              <span className="hidden md:inline font-mono text-xs text-faint ml-1">{dateLine}</span>
             </button>
-            <p className="font-mono text-xs text-faint">
-              {total} việc · {stats.data?.new_24h ?? "–"} mới 24h · crawl 9h/11h/14h/16h/21h
-            </p>
-          </div>
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <input
-              value={searchInput}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Từ khóa: java backend, tester manual…"
-              className="flex-1 min-w-52 bg-night border border-edge rounded-[10px] px-4 py-2.5 text-[15px] placeholder:text-faint focus:outline-none focus:border-ember"
-            />
-            <div className="flex rounded-[10px] border border-edge overflow-hidden" role="group" aria-label="Nguồn">
-              {["", "itviec", "topcv", "topdev"].map((s) => (
-                <button key={s || "all"}
-                  onClick={() => setF({ ...filters, source: s })}
-                  className={`px-3 py-2.5 text-sm font-medium border-r border-edge last:border-0 transition ${filters.source === s ? "bg-gradient-to-r from-ember to-[#ff8a3c] text-white font-semibold" : "bg-panel text-dim hover:text-mist"}`}>
-                  {s || "Mọi nguồn"}
-                </button>
-              ))}
+            <div className="flex items-center gap-2">
+              <div className="hidden sm:flex rounded-full bg-night border border-edge p-1">
+                <button onClick={() => setView("jobs")} className={`px-4 py-1.5 rounded-full text-sm font-semibold transition ${view==="jobs" ? "bg-white text-night shadow" : "text-dim hover:text-mist"}`}>Jobs</button>
+                <button onClick={() => setView("companies")} className={`px-4 py-1.5 rounded-full text-sm font-semibold transition ${view==="companies" ? "bg-white text-night shadow" : "text-dim hover:text-mist"}`}>Companies</button>
+              </div>
+              <span className="hidden lg:inline font-mono text-xs text-faint ml-2">{total} việc · {stats.data?.new_24h ?? "–"} mới 24h</span>
+              <span className="sm:hidden font-mono text-xs text-faint">{total} · {stats.data?.new_24h ?? "–"} mới</span>
             </div>
-            <select
-              value={filters.sort}
-              onChange={(e) => setF({ ...filters, sort: e.target.value })}
-              className="bg-panel border border-edge rounded-[10px] px-3 py-2.5 text-sm text-dim focus:outline-none focus:border-ember"
-              aria-label="Sắp xếp">
+          </div>
+          {/* Row 2: search + sort + clear */}
+          <div className="flex items-center gap-2 py-3">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-faint">⌕</span>
+              <input
+                value={searchInput}
+                onChange={(e) => onSearchChange(e.target.value)}
+                placeholder="Tìm java, react, senior, remote…"
+                className="w-full bg-night border border-edge rounded-full pl-9 pr-4 py-2.5 text-[14px] placeholder:text-faint focus:outline-none focus:border-ember focus:ring-1 focus:ring-ember/30"
+              />
+            </div>
+            <select value={filters.sort} onChange={(e) => setF({ ...filters, sort: e.target.value })}
+              className="hidden sm:block bg-night border border-edge rounded-full px-3 py-2.5 text-sm text-dim focus:outline-none focus:border-ember">
               {SORTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
             </select>
             {clearCount > 0 && (
-              <button
-                onClick={() => { setSearchInput(""); setF(DEFAULT_FILTERS); }}
-                className="font-mono text-xs text-faint hover:text-mist whitespace-nowrap">
-                xoá {clearCount} lọc
-              </button>
+              <button onClick={() => { setSearchInput(""); setF(DEFAULT_FILTERS); }}
+                className="shrink-0 font-mono text-xs px-3 py-1.5 rounded-full border border-edge text-faint hover:text-mist hover:border-faint">xoá {clearCount} lọc</button>
             )}
+          </div>
+          {/* Row 3: segmented filters — chỉ hiện ở Jobs view */}
+          {view === "jobs" && (
+            <div className="flex items-center gap-2 pb-3 flex-wrap">
+              <div className="flex rounded-full bg-night border border-edge p-1">
+                {["", "itviec", "topcv", "topdev"].map((s) => (
+                  <button key={s || "all"} onClick={() => setF({ ...filters, source: s })}
+                    className={`px-3 py-1 rounded-full text-xs font-medium transition ${filters.source === s ? "bg-ember text-white" : "text-dim hover:text-mist"}`}>{s || "Tất cả nguồn"}</button>
+                ))}
+              </div>
+              <div className="h-5 w-px bg-edge hidden sm:block" />
+              <div className="flex rounded-full bg-night border border-edge p-1">
+                {["", "<50", "50-100", "101-150", "151-300", "301-1000", "1000+"].map((v) => (
+                  <button key={v || "all-size"} onClick={() => setF({ ...filters, company_size: v })}
+                    className={`px-2.5 py-1 rounded-full text-xs transition ${filters.company_size === v ? "bg-violet text-white" : "text-dim hover:text-mist"}`}>{v || "Mọi quy mô"}</button>
+                ))}
+              </div>
+              <label className="ml-auto flex items-center gap-1.5 font-mono text-xs text-dim cursor-pointer select-none">
+                <input type="checkbox" checked={!!filters.show_hidden} onChange={(e) => setF({ ...filters, show_hidden: e.target.checked ? 1 : 0 })} className="accent-ember w-3.5 h-3.5" /> Hiện Không OK
+              </label>
+            </div>
+          )}
+          {/* Mobile view switch */}
+          <div className="sm:hidden flex rounded-full bg-night border border-edge p-1 mb-3">
+            <button onClick={() => setView("jobs")} className={`flex-1 py-1.5 rounded-full text-sm font-semibold ${view==="jobs" ? "bg-white text-night" : "text-dim"}`}>Jobs</button>
+            <button onClick={() => setView("companies")} className={`flex-1 py-1.5 rounded-full text-sm font-semibold ${view==="companies" ? "bg-white text-night" : "text-dim"}`}>Companies</button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-[1760px] mx-auto px-4 md:px-6 py-5">
+      {view === "companies" ? (
+        <main className="max-w-[1760px] mx-auto px-4 md:px-6 py-5">
+          <Companies onFilterCompany={(c) => { setFilters({...filters, company_size: c.bucket || ""}); setView("jobs"); window.scrollTo({top:0, behavior:"smooth"}); }} />
+        </main>
+      ) : (
+        <main className="max-w-[1760px] mx-auto px-4 md:px-6 py-5">
         {/* Dải tin mới đăng nhất — luôn xếp theo ngày đăng, tôn trọng mọi filter khác */}
         {fresh.length > 0 && (
           <section aria-label="Tin mới nhất" className="mb-6">
@@ -184,7 +211,7 @@ export default function App() {
                 </div>
               )}
             </div>
-            <JobTable jobs={jobsQ.data?.jobs} loading={jobsQ.isPending} />
+            <JobTable jobs={jobsQ.data?.jobs} loading={jobsQ.isPending} onChanged={() => jobsQ.refetch()} />
           </section>
 
           {/* Rail phải: biểu đồ — chỉ hiện trên màn rất rộng */}
@@ -205,9 +232,10 @@ export default function App() {
         </div>
 
         <p className="font-mono text-xs text-faint mt-8">
-          crawl itviec · topcv · topdev — 9h/11h/14h/16h/21h · /api/jobs · /api/stats · /api/meta · /api/trend
+          crawl itviec · topcv · topdev — 9h/11h/14h/16h/21h · /api/jobs · /api/stats · /api/meta · /api/trend · /api/companies
         </p>
       </main>
+      )}
     </div>
   );
 }
@@ -229,6 +257,8 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
   });
   if (filters.tag) pills.push({ label: `tag ${filters.tag}`, clear: () => setF({ ...filters, tag: "" }) });
   if (filters.it_only !== 1) pills.push({ label: "cả tin ngoài IT", clear: () => setF({ ...filters, it_only: 1 }) });
+  if (filters.show_hidden) pills.push({ label: "đang hiện việc Không OK", clear: () => setF({ ...filters, show_hidden: 0 }) });
+  if (filters.company_size) pills.push({ label: `quy mô ${filters.company_size}`, clear: () => setF({ ...filters, company_size: "" }) });
   if (pills.length === 0) return null;
   return (
     <div className="flex items-center gap-1.5 flex-wrap mb-4" aria-live="polite">
@@ -247,7 +277,7 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
 function FreshCard({ job: j, index }: { job: Job; index: number }) {
   return (
     <a href={j.url} target="_blank" rel="noreferrer"
-       className="shrink-0 w-64 bg-panel border border-edge rounded-[10px] p-3 hover:border-ember transition flex gap-2.5">
+       className="shrink-0 w-64 bg-panel border border-edge rounded-[14px] p-3 shadow-sm hover:border-ember transition flex gap-2.5">
       <span className="font-mono text-2xl font-semibold select-none text-transparent bg-clip-text bg-gradient-to-b from-violet to-ember">
         {String(index + 1).padStart(2, "0")}
       </span>

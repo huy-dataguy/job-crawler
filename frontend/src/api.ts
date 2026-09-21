@@ -31,6 +31,11 @@ export type Job = {
   first_seen_at: string;
   last_seen_at: string;
   is_new: number;
+  viewed: number;
+  hidden: number;
+  company_size_raw: string | null;
+  company_bucket: string | null;
+  company_num_employees: string | null;
 };
 
 export type Filters = {
@@ -45,6 +50,8 @@ export type Filters = {
   it_only: number;
   since_hours: number;
   sort: string;
+  show_hidden: number;
+  company_size: string;
 };
 
 async function get<T>(url: string): Promise<T> {
@@ -58,9 +65,11 @@ export function filterParams(f: Filters): string {
   p.set("it_only", String(f.it_only ?? 1));
   p.set("since_hours", String(f.since_hours || "0"));
   p.set("salary_min", String(f.salary_min || "0"));
+  p.set("show_hidden", String(f.show_hidden ?? 0));
+  if ((f as any).company_size) p.set("company_size", (f as any).company_size);
   if (f.sort && f.sort !== "auto") p.set("sort", f.sort);
   for (const [k, v] of Object.entries(f)) {
-    if (k === "it_only" || k === "since_hours" || k === "salary_min" || k === "sort") continue;
+    if (k === "it_only" || k === "since_hours" || k === "salary_min" || k === "sort" || k === "show_hidden" || k === "company_size") continue;
     if (v) p.set(k, String(v));
   }
   return p.toString();
@@ -89,4 +98,14 @@ export function fetchJobs(f: Filters, page: number) {
   p.set("offset", String((page - 1) * 50));
   p.set("limit", "50");
   return get<{ total: number; jobs: Job[] }>("/api/jobs?" + p.toString());
+}
+
+export async function markJob(source: string, source_id: string, patch: { viewed?: number; hidden?: number }) {
+  const r = await fetch("/api/mark", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, source_id, ...patch }),
+  });
+  if (!r.ok) throw new Error(`${r.status} /api/mark`);
+  return r.json();
 }

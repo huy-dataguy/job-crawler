@@ -39,11 +39,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* quầng sáng header — điểm trang trí duy nhất */
+/* quầng sáng header — subtle */
 .hero-glow {
   background:
-    radial-gradient(560px 160px at 12% -40px, rgba(139, 124, 255, 0.28), transparent 70%),
-    radial-gradient(520px 150px at 88% -30px, rgba(255, 90, 60, 0.22), transparent 70%);
+    radial-gradient(520px 140px at 14% -40px, rgba(139, 124, 255, 0.20), transparent 70%),
+    radial-gradient(480px 130px at 86% -30px, rgba(255, 90, 60, 0.16), transparent 70%);
 }
 
 /* dải tin mới cuộn ngang */

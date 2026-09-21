@@ -10,6 +10,11 @@ from pathlib import Path
 from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 FRONTEND_DIST = Path(os.environ.get(
     "JC_FRONTEND_DIST", Path(__file__).resolve().parents[1] / "frontend" / "dist"
@@ -29,7 +34,25 @@ def db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.execute("PRAGMA busy_timeout=5000")
     conn.row_factory = sqlite3.Row
+    # đảm bảo bảng job_marks tồn tại (phòng khi DB tạo trước migration)
+    conn.execute("""CREATE TABLE IF NOT EXISTS job_marks (
+        source TEXT NOT NULL, source_id TEXT NOT NULL,
+        viewed INTEGER NOT NULL DEFAULT 0, hidden INTEGER NOT NULL DEFAULT 0,
+        marked_at TEXT NOT NULL, PRIMARY KEY (source, source_id))""")
+    try:
+        from job_crawler.company_enrich import ensure_company_tables
+
+        ensure_company_tables(conn)
+    except Exception:
+        pass
     return conn
+
+
+class MarkBody(BaseModel):
+    source: str
+    source_id: str
+    viewed: int | None = None  # 0/1, None = giữ nguyên
+    hidden: int | None = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -42,11 +65,83 @@ if FRONTEND_DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
 
 
+@app.post("/api/mark")
+def api_mark(body: MarkBody):
+    conn = db()
+    now = datetime.now().isoformat(timespec="seconds")
+    cur = conn.execute("SELECT viewed, hidden FROM job_marks WHERE source=? AND source_id=?",
+                       (body.source, body.source_id)).fetchone()
+    viewed = body.viewed if body.viewed is not None else (cur["viewed"] if cur else 0)
+    hidden = body.hidden if body.hidden is not None else (cur["hidden"] if cur else 0)
+    conn.execute("""INSERT INTO job_marks(source, source_id, viewed, hidden, marked_at)
+                    VALUES (?,?,?,?,?)
+                    ON CONFLICT(source, source_id) DO UPDATE SET viewed=?, hidden=?, marked_at=?""",
+                 (body.source, body.source_id, viewed, hidden, now, viewed, hidden, now))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "viewed": viewed, "hidden": hidden}
+
+
+@app.get("/api/companies")
+def api_companies(
+    q: str = "",
+    source: str = "",
+    bucket: str = "",
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+):
+    conn = db()
+    where = ["1=1"]
+    params: list = []
+    if source:
+        where.append("source=?")
+        params.append(source)
+    if bucket:
+        where.append("bucket=?")
+        params.append(bucket)
+    if q:
+        where.append("(company LIKE ? OR size_raw LIKE ?)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    where_s = " AND ".join(where)
+    total = conn.execute(f"SELECT count(*) FROM companies WHERE {where_s}", params).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT source, company, company_slug, detail_url, size_raw, size_min, size_max, num_employees, bucket, fetched_at FROM companies WHERE {where_s} ORDER BY company LIMIT ? OFFSET ?",
+        params + [limit, offset],
+    ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        cnt = conn.execute(
+            "SELECT count(*) FROM jobs WHERE source=? AND company=?", (d["source"], d["company"])
+        ).fetchone()[0]
+        d["job_count"] = cnt
+        out.append(d)
+    conn.close()
+    return {"total": total, "companies": out}
+
+
+@app.get("/api/company-stats")
+def api_company_stats():
+    conn = db()
+    rows = conn.execute(
+        "SELECT bucket, count(*) as n FROM companies WHERE bucket IS NOT NULL AND bucket != '' GROUP BY bucket"
+    ).fetchall()
+    bucket_map = {r["bucket"]: r["n"] for r in rows}
+    total = conn.execute("SELECT count(*) FROM companies").fetchone()[0]
+    enriched = conn.execute("SELECT count(*) FROM companies WHERE size_raw IS NOT NULL").fetchone()[0]
+    buckets = [{"bucket": b, "n": bucket_map.get(b, 0)} for b in _COMPANY_BUCKETS]
+    by_source = [
+        dict(r) for r in conn.execute("SELECT source, count(*) as n FROM companies GROUP BY source")
+    ]
+    conn.close()
+    return {"total": total, "enriched": enriched, "buckets": buckets, "by_source": by_source}
+
+
 @app.get("/api/jobs")
 def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
              q: str = "", category: str = "", exp: str = "", tag: str = "",
              skill: str = "", level: str = "", salary_min: float = 0,
-             it_only: int = 1,
+             it_only: int = 1, show_hidden: int = 0, company_size: str = "",
              since_hours: int = 0, sort: str = "auto"):
     """Bảng đồng nhất xuyên nguồn: mọi filter (q/exp/level/category/skill/salary)
     đều chạy cho cả 3 nguồn. exp itviec/topdev là ước tính từ level trong title."""
@@ -54,6 +149,10 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     frm, where_s, params, use_fts = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours)
+    if company_size:
+        frm += " LEFT JOIN companies ON companies.source=jobs.source AND companies.company=jobs.company"
+        where_s += " AND companies.bucket=?"
+        params.append(company_size)
     if sort == "posted" or (sort == "auto" and not use_fts):
         order = "jobs.posted_at DESC NULLS LAST"
     elif sort == "new":
@@ -62,16 +161,35 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
         order = "jobs.salary_max DESC NULLS LAST"
     else:
         order = "bm25(jobs_fts)"  # relevance khi search từ khóa
-    total = conn.execute(f"SELECT count(*) FROM {frm} WHERE {where_s}", params).fetchone()[0]
+    # ẩn hidden mặc định, JOIN job_marks
+    base_where = where_s
+    base_params = list(params)
+    base_frm = frm
+    has_marks = "job_marks" in base_frm
+    if not show_hidden:
+        if not has_marks:
+            base_frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
+        base_where += " AND COALESCE(job_marks.hidden,0)=0"
+    else:
+        if not has_marks:
+            base_frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
+    if "companies" not in base_frm:
+        base_frm += " LEFT JOIN companies ON companies.source=jobs.source AND companies.company=jobs.company"
+    total = conn.execute(f"SELECT count(*) FROM {base_frm} WHERE {base_where}", base_params).fetchone()[0]
     rows = conn.execute(
         f"""SELECT jobs.source, jobs.source_id, jobs.title, jobs.company, jobs.url,
                    jobs.city, jobs.salary, jobs.experience, jobs.exp_min, jobs.category,
                    jobs.tags, jobs.skills, jobs.is_it, jobs.level,
                    jobs.salary_min, jobs.salary_max,
                    jobs.posted_text, jobs.posted_at,
-                   jobs.first_seen_at, jobs.last_seen_at, jobs.is_new
-            FROM {frm} WHERE {where_s} ORDER BY {order} LIMIT ? OFFSET ?""",
-        params + [limit, offset],
+                   jobs.first_seen_at, jobs.last_seen_at, jobs.is_new,
+                   COALESCE(job_marks.viewed,0) as viewed,
+                   COALESCE(job_marks.hidden,0) as hidden,
+                   companies.size_raw as company_size_raw,
+                   companies.bucket as company_bucket,
+                   companies.num_employees as company_num_employees
+             FROM {base_frm} WHERE {base_where} ORDER BY {order} LIMIT ? OFFSET ?""",
+        base_params + [limit, offset],
     ).fetchall()
     conn.close()
     return JSONResponse({
@@ -87,7 +205,7 @@ def _q_like(x: str) -> str:
 
 def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "",
               tag: str = "", skill: str = "", level: str = "", salary_min: float = 0,
-              it_only: int = 1, since_hours: int = 0):
+              it_only: int = 1, since_hours: int = 0, company_size: str = ""):
     """Helper dùng chung: build FROM/WHERE cho mọi endpoint (jobs/stats/trend/meta)
     để filter nào cũng cập nhật mọi số liệu. Cột luôn prefix jobs. tránh ambiguous."""
     use_fts = bool(q.strip())
@@ -124,6 +242,12 @@ def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "
     if since_hours:
         where.append("jobs.posted_at >= ?")
         params.append((datetime.now() - timedelta(hours=since_hours)).isoformat())
+    if company_size:
+        # JOIN companies để lọc theo bucket; LEFT JOIN để không mất job chưa có bucket khi không lọc? nhưng khi lọc thì cần INNER effect => dùng LEFT rồi WHERE bucket=...
+        if "companies" not in frm:
+            frm += " LEFT JOIN companies ON companies.source=jobs.source AND companies.company=jobs.company"
+        where.append("companies.bucket=?")
+        params.append(company_size)
     return frm, " AND ".join(where), params, use_fts
 
 
@@ -144,6 +268,9 @@ _EXP_BUCKETS = [
 
 
 _LEVELS = ["intern", "fresher", "junior", "middle", "senior", "lead", "manager"]
+
+
+_COMPANY_BUCKETS = ["<50", "50-100", "101-150", "151-300", "301-1000", "1000+"]
 
 
 def _exp_cond(bucket: str) -> str | None:

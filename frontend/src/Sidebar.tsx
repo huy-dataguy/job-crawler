@@ -56,6 +56,15 @@ export default function Sidebar({ filters, setFilters, meta }: {
         </div>
       </Card>
 
+      <Card title="Quy mô công ty">
+        <div className="flex flex-wrap gap-1.5">
+          {["", "<50", "50-100", "101-150", "151-300", "301-1000", "1000+"].map((v)=>(
+            <Chip key={v||"all"} active={filters.company_size===v} onClick={()=>setFilters({...filters, company_size: v})}>{v || "Tất cả"}</Chip>
+          ))}
+        </div>
+        <p className="font-mono text-xs text-faint mt-2">Lọc job theo bucket đã enrich. TopCV chưa có dữ liệu.</p>
+      </Card>
+
       <Card title="Lương tới ít nhất (tr/tháng)">
         <div className="flex flex-wrap gap-1.5">
           {[0, 10, 20, 35, 50].map((v) => (
@@ -130,7 +139,7 @@ export default function Sidebar({ filters, setFilters, meta }: {
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-panel border border-edge rounded-[10px] p-4">
+    <div className="bg-panel border border-edge rounded-[14px] p-4 shadow-sm">
       <h3 className="font-mono text-xs text-faint mb-2.5">{title}</h3>
       {children}
     </div>
@@ -142,8 +151,8 @@ function Chip({ active, children, onClick }: {
 }) {
   return (
     <button onClick={onClick}
-      className={`px-2.5 py-1 rounded-full text-[13px] border transition
-        ${active ? "bg-gradient-to-r from-ember to-[#ff8a3c] text-white border-transparent font-semibold" : "bg-transparent text-dim border-edge hover:border-faint hover:text-mist"}`}>
+      className={`px-2.5 py-1 rounded-full text-xs font-medium border transition
+        ${active ? "bg-ember text-white border-ember shadow-sm" : "bg-night text-dim border-edge hover:border-faint hover:text-mist"}`}>
       {children}
     </button>
   );

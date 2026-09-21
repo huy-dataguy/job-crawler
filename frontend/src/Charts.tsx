@@ -97,7 +97,7 @@ export function SalaryChart({ jobs }: { jobs: Job[] }) {
 
 export function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-panel border border-edge rounded-[10px] p-4">
+    <div className="bg-panel border border-edge rounded-[14px] p-4 shadow-sm">
       <h3 className="font-mono text-xs text-faint mb-3">{title}</h3>
       {children}
     </div>

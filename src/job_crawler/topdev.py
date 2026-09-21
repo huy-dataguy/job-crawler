@@ -107,14 +107,17 @@ def parse_listing(html: str) -> list[dict]:
     return list({j["source_id"]: j for j in jobs}.values())
 
 
-def crawl(max_pages: int | None = None) -> list[dict]:
+def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
+    """Trả về (jobs, pages_crawled)."""
     all_jobs: dict[str, dict] = {}
+    pages = 0
     for page in range(1, (max_pages or MAX_PAGES) + 1):
         url = LISTING_URL + (f"&page={page}" if page > 1 else "")
         found = parse_listing(fetch_html(url))
         if not found:
             break
+        pages += 1
         for j in found:
             all_jobs[j["source_id"]] = j
         time.sleep(config.DELAY_BETWEEN_REQUESTS)
-    return list(all_jobs.values())
+    return list(all_jobs.values()), pages

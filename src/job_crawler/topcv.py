@@ -129,15 +129,19 @@ def parse_listing(html: str) -> list[dict]:
     return jobs
 
 
-def crawl(max_pages: int | None = None) -> list[dict]:
+def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
+    """Trả về (jobs, pages_crawled)."""
     all_jobs: dict[str, dict] = {}
+    pages = 0
     for page in range(1, (max_pages or config.MAX_PAGES_TOPCV) + 1):
         url = config.TOPCV_URL + (f"&page={page}" if page > 1 else "")
         jobs = parse_listing(_chrome_fetch(url))
-        # Trang bi\'én th\'e'' — bỏ qua card không có title, tránh ghi rác
+        # Trang biến thế — bỏ qua card không có title, tránh ghi rác
         jobs = [j for j in jobs if j["title"]]
         if not jobs:
             break
+        pages += 1
         for j in jobs:
             all_jobs[j["source_id"]] = j
-    return list(all_jobs.values())
+        time.sleep(config.DELAY_BETWEEN_REQUESTS)
+    return list(all_jobs.values()), pages
