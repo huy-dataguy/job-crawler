@@ -1,31 +1,37 @@
-"""summary: "Crawl TopCV HCMC listing (3 trang đầu) → SQLite qua headless Chrome"
+#requirements:
+#curl_cffi>=0.15
+#beautifulsoup4>=4.12
+
+"""summary: "Crawl TopCV HCMC listing → SQLite qua curl_cffi (TLS impersonate)"
 description: |
-  Cloudflare chặn HTTP thuần → dùng headless chrome (có sẵn chromium trong
-  worker image). Repo mounted /workspace (ro), SQLite /data.
+  Cloudflare TopCV chặn theo TLS fingerprint — curl_cffi impersonate
+  chrome124/136/safari184 pass (probe 23/09 verify trong worker). Chrome đã
+  bỏ: headless chromium trong worker bị treo TimeoutExpired 120s mỗi run.
+  Repo mounted /workspace (ro), SQLite /data.
 """
+import os
 import sys
+import json
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 
 sys.path.insert(0, "/workspace/src")
+os.environ.setdefault("JC_DATA_DIR", "/data")
 
-from job_crawler import config, store, topcv  # noqa: E402
+def _secret(path: str) -> str:
+    base = os.environ.get("BASE_INTERNAL_URL") or os.environ["WM_BASE_URL"]
+    url = f"{base}/api/w/{os.environ['WM_WORKSPACE']}/variables/get_value/{quote(path, safe='/')}"
+    request = Request(url, headers={"Authorization": f"Bearer {os.environ['WM_TOKEN']}"})
+    with urlopen(request, timeout=15) as response:
+        value = json.loads(response.read().decode("utf-8"))
+    return value["value"] if isinstance(value, dict) else value
 
-conn = store.connect(config.DB_PATH)
-run_id = store.start_run(conn, "topcv")
-try:
-    jobs, pages = topcv.crawl()
-    new = upd = 0
-    for j in jobs:
-        if store.upsert_job(conn, j) == "new":
-            new += 1
-        else:
-            upd += 1
-    conn.commit()
-    store.finish_run(conn, run_id, status="ok", pages=pages, found=len(jobs),
-                     new_count=new, updated_count=upd)
-    return {"found": len(jobs), "new": new, "updated": upd}
-except Exception:
-    store.finish_run(conn, run_id, status="error", pages=0, found=0,
-                     new_count=0, updated_count=0)
-    raise
-finally:
-    conn.close()
+
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", _secret("u/jobcrawler/telegram_bot_token"))
+os.environ.setdefault("TELEGRAM_CHAT_ID", _secret("u/jobcrawler/telegram_chat_id"))
+
+from job_crawler.pipeline import run_source  # noqa: E402
+
+
+def main():
+    return run_source("topcv")

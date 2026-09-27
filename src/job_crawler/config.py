@@ -25,3 +25,16 @@ CHROME_BIN = os.environ.get("JC_CHROME_BIN", "google-chrome")
 CHROME_FLUSH_SECONDS = os.environ.get(
     "JC_CHROME_VIRTUAL_TIME", "15000"
 )  # virtual-time-budget cho Cloudflare JS runtime
+
+# Telegram: auto-enable only when both secrets exist.  JC_TELEGRAM_ENABLED can
+# explicitly disable delivery for local/debug runs without removing secrets.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+_telegram_override = os.environ.get("JC_TELEGRAM_ENABLED")
+TELEGRAM_ENABLED = (
+    _telegram_override.strip().lower() in {"1", "true", "yes", "on"}
+    if _telegram_override is not None
+    else bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+)
+TELEGRAM_TIMEOUT_SECONDS = float(os.environ.get("JC_TELEGRAM_TIMEOUT", "15"))
+TELEGRAM_MIN_INTERVAL_SECONDS = float(os.environ.get("JC_TELEGRAM_MIN_INTERVAL", "1.05"))

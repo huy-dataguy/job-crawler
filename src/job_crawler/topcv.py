@@ -1,73 +1,91 @@
-"""Crawler TopCV — Cloudflare chặn HTTP thuần → dùng headless Chrome one-shot.
+"""Crawler TopCV — curl_cffi impersonate TLS profile (không cần Chrome).
 
-`chrome --headless --dump-dom URL` trả HTML server-rendered đầy đủ (đã verify
-ở recon: chrome124 impersonation bị CF JS-challenge, headless Chrome pass).
+Recon + probe 23/09 đã verify từ máy local VÀ từ trong Windmill worker:
+- Cloudflare TopCV chặn theo TLS fingerprint (JA3), hiện KHÔNG ép JS challenge:
+  curl_cffi impersonate `chrome124`/`chrome136`/`safari184` → 200 full HTML
+  (cả listing lẫn company page); `chrome131`/`firefox135`/`edge101`/curl thô → 403.
+- Headless Chrome trong worker bị treo → TimeoutExpired 120s mỗi run (lý do
+  topcv chết từ 19/09) → bỏ hẳn Chrome.
+
+Nếu CF siết lại: `fetch_html` thử lần lượt chuỗi profile, hết chuỗi thì raise
+(challenge-then-stop, không đổi UA hammer — tránh bị ban nặng hơn).
 """
 from __future__ import annotations
 
 import json
-import re
-import subprocess
 import time
 
 from bs4 import BeautifulSoup
+from curl_cffi import requests as curl_requests
 
 from . import config
 from . import normalize
 from .itviec import _posted_iso
 
-def _resolve_chrome() -> str:
-    """Tìm chrome/chromium: override env → PATH → playwright cache."""
-    import glob
-    import os
-    import shutil
+# Chuỗi profile TLS impersonate theo thứ tự ưu tiên. Profile pass đầu tiên sẽ
+# được ghim (sticky) để các request sau chỉ tốn 1 lần fetch.
+_IMPERSONATE_CHAIN: tuple[str, ...] = ("chrome124", "chrome136", "safari184")
+_sticky_profile: str | None = None
+_session: curl_requests.Session | None = None
 
-    env_bin = os.environ.get("JC_CHROME_BIN")
-    if env_bin and (os.path.isfile(env_bin) or shutil.which(env_bin)):
-        return env_bin
-    for cand in ("google-chrome", "chromium", "chromium-browser"):
-        if shutil.which(cand):
-            return cand
-    for pattern in (
-        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"),
-        "/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome",
-        "/ms-playwright/chromium-*/chrome-linux*/chrome",
-    ):
-        hits = sorted(glob.glob(pattern))
-        if hits:
-            return hits[-1]
-    return "google-chrome"
+# Marker của trang challenge Cloudflare (trang THẬT không chứa các chuỗi này
+# trong title/head; "challenge-platform" thì trang thật cũng có nên không dùng).
+_CHALLENGE_MARKERS = ("Just a moment", "Attention Required")
 
 
-def _chrome_fetch(url: str, attempts: int = 2) -> str:
-    cmd = [
-        _resolve_chrome(), "--headless=new", "--disable-gpu", "--no-sandbox",
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        " (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        f"--virtual-time-budget={config.CHROME_FLUSH_SECONDS}", "--dump-dom", url,
-    ]
-    for i in range(attempts):
+def _get_session() -> curl_requests.Session:
+    global _session
+    if _session is None:
+        _session = curl_requests.Session()
+    return _session
+
+
+def fetch_html(
+    url: str,
+    expect: tuple[str, ...] = (),
+    timeout: float = 30,
+) -> str:
+    """GET url qua curl_cffi, thử lần lượt chuỗi profile TLS.
+
+    Nhận là challenge khi: status != 200, marker Cloudflare, hoặc thiếu token
+    trong `expect` (ví dụ "data-job-id" cho listing, "Quy mô" cho company page).
+    Hết chuỗi profile mà vẫn chặn → raise RuntimeError, KHÔNG retry đổi UA.
+    """
+    global _sticky_profile
+    order: list[str] = []
+    if _sticky_profile:
+        order.append(_sticky_profile)
+    order.extend(p for p in _IMPERSONATE_CHAIN if p not in order)
+
+    errors: list[str] = []
+    session = _get_session()
+    for imp in order:
         try:
-            out = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
-        except subprocess.TimeoutExpired:
-            if i == attempts - 1:
-                raise
-            time.sleep(10)
+            r = session.get(
+                url,
+                impersonate=imp,
+                timeout=timeout,
+                headers={"Accept-Language": "vi,en;q=0.8"},
+            )
+        except Exception as e:  # transport error → thử profile kế tiếp
+            errors.append(f"{imp}: {type(e).__name__}: {e}")
             continue
-        html = out.stdout
-        ok = (
-            "company-name" in html
-            and "data-job-id" in html
-            and "Attention Required" not in html
-            and "Just a moment" not in html
-        )
-        if not ok:
-            if i == attempts - 1:
-                raise RuntimeError(f"TopCV không trả trang listing hợp lệ (len={len(html)})")
-            time.sleep(15)
+        html = r.text
+        challenge = r.status_code != 200 or any(m in html for m in _CHALLENGE_MARKERS)
+        missing_expect = bool(expect) and not all(tok in html for tok in expect)
+        if challenge or missing_expect:
+            errors.append(f"{imp}: status={r.status_code} challenge={challenge}")
             continue
+        _sticky_profile = imp
         return html
-    raise RuntimeError("unreachable")
+    raise RuntimeError(
+        f"TopCV chặn mọi profile TLS cho {url} [{'; '.join(errors)}] — "
+        "dừng theo pattern challenge-then-stop, không hammer."
+    )
+
+
+def _fetch_listing(url: str) -> str:
+    return fetch_html(url, expect=("company-name", "data-job-id"), timeout=40)
 
 
 def parse_listing(html: str) -> list[dict]:
@@ -135,7 +153,7 @@ def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
     pages = 0
     for page in range(1, (max_pages or config.MAX_PAGES_TOPCV) + 1):
         url = config.TOPCV_URL + (f"&page={page}" if page > 1 else "")
-        jobs = parse_listing(_chrome_fetch(url))
+        jobs = parse_listing(_fetch_listing(url))
         # Trang biến thế — bỏ qua card không có title, tránh ghi rác
         jobs = [j for j in jobs if j["title"]]
         if not jobs:

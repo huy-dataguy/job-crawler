@@ -44,7 +44,8 @@ services:
       start_period: 15s
     networks: [windmill-network]
 
-  # Worker chạy crawl: image có sẵn Playwright/Chromium (cho TopCV vượt Cloudflare)
+  # Worker chạy crawl: có Playwright/Chromium cho job cần browser; crawler TopCV
+  # hiện dùng curl_cffi (TLS impersonate) nên không phụ thuộc Chrome nữa.
   windmill_worker_jobcrawl:
     image: heronq02/windmill-worker:latest
     pull_policy: missing
@@ -54,6 +55,7 @@ services:
       - MODE=worker
       - WORKER_GROUP=jobcrawl
       - WORKER_TAGS=jobcrawl,python3
+      - JC_DATA_DIR=/data
       # Chrome trong Windmill worker chạy ở home worker, override để chỉ về chromium của image
       - HOME=/root
     depends_on:

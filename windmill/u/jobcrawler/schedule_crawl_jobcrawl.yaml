@@ -1,8 +1,7 @@
-title: Crawl IT jobs HCMC
-description: Crawl itviec + topcv 5 lần/ngày: 9h, 11h, 14h, 16h, 21h (Asia/Ho_Chi_Minh)
 enabled: true
-cron: "0 9,11,14,16,21 * * *"
+schedule: "0 */15 * * * *"
 timezone: Asia/Ho_Chi_Minh
 script_path: u/jobcrawler/crawl_all
-no_overlap: true
-argument: null
+is_flow: false
+args: {}
+no_flow_overlap: true

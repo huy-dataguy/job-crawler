@@ -4,7 +4,9 @@ Recon đã xác minh:
 - itviec: job detail https://itviec.com/it-jobs/<slug>-<id> chứa 'Company size' block (1000+ employees, 501-1000...)
          company page https://itviec.com/companies/<slug> cũng chứa. Dùng job detail cho gọn (đã có URL trong DB).
 - topdev: company detail https://topdev.vn/companies/<slug>-<id> chứa RSC JSON company_size + num_employees (500-999). Search payload không có.
-- topcv: company page https://www.topcv.vn/cong-ty/<slug>/<id>.html chứa 'Quy mô' cần headless Chrome (Cloudflare). Tạm triển khai itviec+topdev trước.
+- topcv: company page https://www.topcv.vn/cong-ty/<slug>/<id>.html chứa 'Quy mô'.
+  Fetch qua curl_cffi impersonate TLS (dùng chung topcv.fetch_html — probe 23/09
+  verify pass từ local lẫn Windmill worker; Chrome bị bỏ vì treo trong worker).
 
 Buckets chuẩn: <50 | 50-100 | 101-150 | 151-300 | 301-1000 | 1000+
 """
@@ -144,50 +146,39 @@ def fetch_topdev_size(company_url: str | None, job_url: str | None = None) -> tu
             continue
     return (None, None)
 
-# ---------- topcv (headless) ----------
+# ---------- topcv (curl_cffi) ----------
 def fetch_topcv_size(company_url: str) -> str | None:
-    """Dùng headless Chrome dump-dom, parse 'Quy mô'."""
-    import subprocess, shutil, glob, os, re, time
-    from bs4 import BeautifulSoup
+    """Fetch company page qua curl_cffi (dùng chung topcv.fetch_html), parse 'Quy mô'.
 
-    def resolve_chrome():
-        for cand in ("google-chrome", "chromium", "chromium-browser"):
-            if shutil.which(cand):
-                return cand
-        for pat in (os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"), "/root/.cache/ms-playwright/chromium-*/chrome-linux*/chrome"):
-            hits = sorted(glob.glob(pat))
-            if hits:
-                return hits[-1]
-        return "google-chrome"
-
-    chrome = resolve_chrome()
-    cmd = [chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
-           "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-           "--virtual-time-budget=15000", "--dump-dom", company_url]
+    Trả None khi fetch lỗi hoặc trang không có field 'Qu mô' — caller chỉ log,
+    không raise (enrich chạy theo batch trên nhiều công ty).
+    """
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=120, check=True)
-        html = out.stdout
-        soup = BeautifulSoup(html, "html.parser")
-        # tìm dòng chứa Quy mô
-        for node in soup.find_all(string=re.compile(r"Quy mô", re.I)):
-            parent = node.parent
-            # thường là <span>Quy mô:</span><span>100-200 nhân viên</span> hoặc <div>
-            sib = parent.find_next_sibling()
-            if sib:
-                raw = sib.get_text(" ", strip=True)
-                if raw and re.search(r"\d", raw):
-                    return raw
-            # fallback: parent container text
-            txt = parent.parent.get_text(" ", strip=True) if parent.parent else ""
-            m = re.search(r"Quy mô[^:]*:\s*([0-9\-\+ ]+nhân viên[^\n<]*)", txt, re.I)
-            if m:
-                return m.group(1).strip()
-        # generic regex
-        m = re.search(r"Quy mô[^<]*</[^>]+>\s*[^<]*([0-9\-\+\s]+nhân viên)", html, re.I)
-        if m:
-            return re.sub(r"\s+", " ", m.group(1).strip())
+        from .topcv import fetch_html
+
+        html = fetch_html(company_url)
     except Exception as e:
-        print(f"[topcv] chrome fetch fail {company_url}: {e}")
+        print(f"[topcv] fetch fail {company_url}: {e}")
+        return None
+    soup = BeautifulSoup(html, "html.parser")
+    # tìm dòng chứa Quy mô
+    for node in soup.find_all(string=re.compile(r"Quy mô", re.I)):
+        parent = node.parent
+        # thường là <span>Quy mô:</span><span>100-200 nhân viên</span> hoặc <div>
+        sib = parent.find_next_sibling()
+        if sib:
+            raw = sib.get_text(" ", strip=True)
+            if raw and re.search(r"\d", raw):
+                return raw
+        # fallback: parent container text
+        txt = parent.parent.get_text(" ", strip=True) if parent.parent else ""
+        m = re.search(r"Quy mô[^:]*:\s*([0-9\-\+ ]+nhân viên[^\n<]*)", txt, re.I)
+        if m:
+            return m.group(1).strip()
+    # generic regex
+    m = re.search(r"Quy mô[^<]*</[^>]+>\s*[^<]*([0-9\-\+\s]+nhân viên)", html, re.I)
+    if m:
+        return re.sub(r"\s+", " ", m.group(1).strip())
     return None
 
 # ---------- store helpers ----------
