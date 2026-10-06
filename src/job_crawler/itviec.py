@@ -58,6 +58,7 @@ def parse_listing(html: str) -> list[dict]:
             tags = [_txt(a) for a in tags_box.find_all(["span", "a"]) if _txt(a)]
         posted_text = _txt(posted_el).removeprefix("Posted ").removeprefix("Đăng ")
         title = _txt(title_el)
+        company_href = company_el.get("href", "") if company_el else ""
         category = _txt(category_el) or (category_el.get("title") if category_el else "")
         tags_clean = normalize.clean_tags(tags)
         skills = normalize.extract_skills(title, tags_clean, category)
@@ -70,6 +71,7 @@ def parse_listing(html: str) -> list[dict]:
                 "source_id": slug_attr,
                 "title": title,
                 "company": _txt(company_el),
+                "company_url": ("https://itviec.com" + company_href) if company_href else None,
                 "url": config.BASE_URL + "it-jobs/" + slug_attr,
                 "city": "Hồ Chí Minh",
                 "salary": salary_text,

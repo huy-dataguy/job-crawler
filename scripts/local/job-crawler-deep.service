@@ -1,0 +1,9 @@
+[Unit]
+Description=Job Crawler — deep crawl (nhiều trang) + harvest thư mục công ty
+After=job-crawler-crawl.service
+
+[Service]
+Type=oneshot
+ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/job-crawler/scripts/local/run_deep.sh"
+TimeoutStartSec=45min
+Nice=15

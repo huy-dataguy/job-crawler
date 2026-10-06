@@ -18,6 +18,10 @@ def main() -> None:
         )
         message = notifier.send_test()
         print({"ok": True, "message_id": message.get("message_id")})
+    elif target == "companies":
+        print(pipeline.run_companies())
+    elif target == "enrich":
+        print(pipeline.run_companies(harvest=False))
     elif target in pipeline.SOURCES:
         print(pipeline.run_source(target))
     else:

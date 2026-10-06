@@ -97,6 +97,7 @@ def parse_listing(html: str) -> list[dict]:
             continue
         title_el = card.select_one("h3.title a[target=_blank]")
         company_el = card.select_one("span.company-name")
+        company_link = card.select_one("a[href*='/cong-ty/']")
         salary_el = card.select_one("label.salary")
         exp_el = card.select_one("label.exp span")
         city_el = card.select_one(".city-text")
@@ -128,6 +129,11 @@ def parse_listing(html: str) -> list[dict]:
                 "source_id": jid,
                 "title": title,
                 "company": company_el.get_text(" ", strip=True) if company_el else "",
+                "company_url": (
+                    (company_link["href"].split("?")[0]
+                     if company_link["href"].startswith("http")
+                     else "https://www.topcv.vn" + company_link["href"].split("?")[0])
+                    if company_link and company_link.has_attr("href") else None),
                 "url": href.split("?")[0] if href.startswith("http") else f"https://www.topcv.vn{href}",
                 "city": city_el.get_text(" ", strip=True) if city_el else "",
                 "salary": salary_text,

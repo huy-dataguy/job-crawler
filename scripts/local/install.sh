@@ -18,9 +18,10 @@ EOF
   echo "Đã tạo $REPO_DIR/.env (placeholder) — điền token/chat_id rồi chạy lại."
 fi
 
-chmod +x "$REPO_DIR/scripts/local/run_crawler.sh"
+chmod +x "$REPO_DIR/scripts/local/run_crawler.sh" "$REPO_DIR/scripts/local/run_deep.sh"
 
-for unit in job-crawler-crawl.service job-crawler-crawl.timer job-crawler-dashboard.service; do
+for unit in job-crawler-crawl.service job-crawler-crawl.timer \
+            job-crawler-dashboard.service job-crawler-deep.service job-crawler-deep.timer; do
   # Unit reference đường dẫn tuyệt đối của repo này → copy (không symlink)
   # để systemd không theo dõi file trong cây git.
   cp "$REPO_DIR/scripts/local/$unit" "$UNIT_DIR/$unit"
@@ -30,8 +31,9 @@ done
 systemctl --user daemon-reload
 systemctl --user enable --now job-crawler-crawl.timer
 systemctl --user enable --now job-crawler-dashboard.service
+systemctl --user enable --now job-crawler-deep.timer
 
 echo "OK. Kiểm tra:"
-echo "  systemctl --user list-timers job-crawler-crawl.timer"
+echo "  systemctl --user list-timers | grep job-crawler"
 echo "  curl -s localhost:8130/api/stats"
 echo "  journalctl --user -u job-crawler-crawl.service -n 20 --no-pager"

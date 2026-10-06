@@ -59,6 +59,9 @@ def parse_listing(html: str) -> list[dict]:
         sib = a.find_next_sibling("span")
         if sib:
             company = _txt(sib)
+        comp_link = card.select_one("a[href^='/companies/']")
+        company_url = ("https://topdev.vn" + comp_link["href"].split("?")[0]
+                       if comp_link and comp_link.has_attr("href") else None)
         salary = ""
         sal_el = card.select_one('span[class*="text-[#e4007f]"] span')
         if sal_el:
@@ -87,6 +90,7 @@ def parse_listing(html: str) -> list[dict]:
                 "source_id": jid,
                 "title": title,
                 "company": company,
+                "company_url": company_url,
                 "url": "https://topdev.vn/detail-jobs/" + a["href"].split("/detail-jobs/")[1].split("?")[0],
                 "city": location or "Hồ Chí Minh",
                 "salary": salary or "N/A",

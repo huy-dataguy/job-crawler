@@ -1,0 +1,9 @@
+[Unit]
+Description=Job Crawler — deep crawl hằng ngày lúc 04:37
+
+[Timer]
+OnCalendar=*-*-* 04:37:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

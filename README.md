@@ -20,10 +20,15 @@ Windmill (:8131) chạy crawler mỗi 15 phút (00, 15, 30, 45 — Asia/Ho_Chi_M
   (Data Engineer là hướng chính, FullStack là hướng phụ — xem
   `src/job_crawler/relevance.py`). Dashboard mặc định xếp "liên quan nhất";
   badge `% khớp` hiện trên mỗi job (hover xem term khớp).
+- **Thư mục công ty đầy đủ** (bảng `company_directory`): TopCV qua sitemap
+  (~49k công ty), ITviec qua directory phân trang, TopDev qua trang đầu +
+  tích lũy từ tin đăng (sitemap topdev đang lỗi 500 phía server). Mỗi job
+  crawl gắn kèm công ty với tên chính xác + cờ đang tuyển; quy mô công ty
+  được enrich dần theo ngân sách mỗi ngày (ưu tiên công ty đang tuyển).
 - **DB gọn nhẹ, không raw**: chỉ lưu job IT đã làm sạch (non-IT bị bỏ trước khi
   lưu); job đăng quá `JC_KEEP_DAYS` ngày hoặc biến mất khỏi nguồn sau
-  `JC_STALE_DAYS` ngày sẽ bị xoá (kèm FTS/marks/enrichment mồ côi) rồi
-  `VACUUM` — DB thực tế ~200 KB cho ~180 job.
+  `JC_STALE_DAYS` ngày sẽ bị xoá (kèm FTS/marks) rồi `VACUUM` — thư mục công ty
+  được giữ lại (dòng nhỏ, không prune).
 - Telegram chỉ push job mới có điểm liên quan ≥ `JC_NOTIFY_MIN_RELEVANCE`
   (kèm dòng `🎯 Khớp profile: N%`). Gửi lỗi thì job chưa commit và sẽ retry ở lượt sau.
 - Dashboard React/FastAPI: search, filter, đánh dấu đã xem/ẩn và thống kê.
@@ -240,6 +245,8 @@ Trong Windmill UI, xác nhận schedule `u/jobcrawler/schedule_crawl_jobcrawl` �
 | --- | --- |
 | Crawl toàn bộ local | `uv run job-crawler` |
 | Crawl một nguồn | `uv run job-crawler itviec\|topcv\|topdev` |
+| Harvest thư mục công ty + enrich | `uv run job-crawler companies` |
+| Chỉ enrich quy mô công ty | `uv run job-crawler enrich` |
 | Test Telegram local | `uv run job-crawler telegram-test` |
 | Dashboard | <http://localhost:8130> |
 | Windmill | <http://localhost:8131> |
@@ -260,6 +267,9 @@ Trong Windmill UI, xác nhận schedule `u/jobcrawler/schedule_crawl_jobcrawl` �
 | `JC_KEEP_DAYS` | `30` | Giữ job đăng trong vòng N ngày (quá thì xoá) |
 | `JC_STALE_DAYS` | `7` | Xoá job không thấy lại trên nguồn sau N ngày |
 | `JC_NOTIFY_MIN_RELEVANCE` | `40` | Ngưỡng điểm CV để push Telegram (0 = push mọi job mới) |
+| `JC_ITVIEC_COMPANY_PAGES` | `120` | Số trang directory công ty ITviec tối đa |
+| `JC_TOPCV_SITEMAP_PAGES` | `300` | Số sub-sitemap công ty TopCV tối đa |
+| `JC_COMPANY_ENRICH_BUDGET` | `150` | Số trang detail công ty enrich mỗi lượt chạy |
 | `JC_DELAY` | `2.0` | Giãn request, đơn vị giây |
 | `TELEGRAM_BOT_TOKEN` | — | Token bot (chỉ local hoặc Windmill Secret) |
 | `TELEGRAM_CHAT_ID` | — | Chat nhận alert (chỉ local hoặc Windmill Secret) |

@@ -47,6 +47,9 @@ def db() -> sqlite3.Connection:
         from job_crawler.company_enrich import ensure_company_tables
 
         ensure_company_tables(conn)
+        from job_crawler.companies_crawl import ensure_directory_tables
+
+        ensure_directory_tables(conn)
     except Exception:
         pass
     return conn
@@ -94,35 +97,41 @@ def api_companies(
     q: str = "",
     source: str = "",
     bucket: str = "",
+    hiring: int = 0,
     limit: int = Query(100, le=500),
     offset: int = 0,
 ):
+    """Thư mục công ty đầy đủ (harvest từ sitemap/directory 3 nguồn)."""
     conn = db()
     where = ["1=1"]
     params: list = []
     if source:
-        where.append("source=?")
+        where.append("d.source=?")
         params.append(source)
     if bucket:
-        where.append("bucket=?")
+        where.append("d.bucket=?")
         params.append(bucket)
+    if hiring:
+        where.append("d.is_hiring=1")
     if q:
-        where.append("(company LIKE ? OR size_raw LIKE ?)")
+        where.append("(d.name LIKE ? OR d.slug LIKE ?)")
         params.extend([f"%{q}%", f"%{q}%"])
     where_s = " AND ".join(where)
-    total = conn.execute(f"SELECT count(*) FROM companies WHERE {where_s}", params).fetchone()[0]
+    frm = ("""company_directory d LEFT JOIN
+              (SELECT source, company, count(*) n FROM jobs WHERE is_it=1 GROUP BY 1, 2) j
+              ON j.source = d.source AND j.company = d.name""")
+    total = conn.execute(f"SELECT count(*) FROM {frm} WHERE {where_s}", params).fetchone()[0]
     rows = conn.execute(
-        f"SELECT source, company, company_slug, detail_url, size_raw, size_min, size_max, num_employees, bucket, fetched_at FROM companies WHERE {where_s} ORDER BY company LIMIT ? OFFSET ?",
+        f"""SELECT d.source, d.name AS company, d.slug AS company_slug, d.detail_url,
+                   d.size_raw, d.size_min, d.size_max, d.num_employees, d.bucket,
+                   d.enriched_at AS fetched_at, d.is_hiring,
+                   COALESCE(j.n, 0) AS job_count
+            FROM {frm} WHERE {where_s}
+            ORDER BY (d.is_hiring OR COALESCE(j.n, 0) > 0) DESC, job_count DESC, d.name
+            LIMIT ? OFFSET ?""",
         params + [limit, offset],
     ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        cnt = conn.execute(
-            "SELECT count(*) FROM jobs WHERE source=? AND company=?", (d["source"], d["company"])
-        ).fetchone()[0]
-        d["job_count"] = cnt
-        out.append(d)
+    out = [dict(r) for r in rows]
     conn.close()
     return {"total": total, "companies": out}
 
@@ -131,17 +140,23 @@ def api_companies(
 def api_company_stats():
     conn = db()
     rows = conn.execute(
-        "SELECT bucket, count(*) as n FROM companies WHERE bucket IS NOT NULL AND bucket != '' GROUP BY bucket"
+        "SELECT bucket, count(*) as n FROM company_directory"
+        " WHERE bucket IS NOT NULL AND bucket != '' GROUP BY bucket"
     ).fetchall()
     bucket_map = {r["bucket"]: r["n"] for r in rows}
-    total = conn.execute("SELECT count(*) FROM companies").fetchone()[0]
-    enriched = conn.execute("SELECT count(*) FROM companies WHERE size_raw IS NOT NULL").fetchone()[0]
+    total = conn.execute("SELECT count(*) FROM company_directory").fetchone()[0]
+    enriched = conn.execute(
+        "SELECT count(*) FROM company_directory WHERE size_raw IS NOT NULL").fetchone()[0]
+    hiring = conn.execute(
+        "SELECT count(*) FROM company_directory WHERE is_hiring=1").fetchone()[0]
     buckets = [{"bucket": b, "n": bucket_map.get(b, 0)} for b in _COMPANY_BUCKETS]
     by_source = [
-        dict(r) for r in conn.execute("SELECT source, count(*) as n FROM companies GROUP BY source")
+        dict(r) for r in conn.execute(
+            "SELECT source, count(*) as n FROM company_directory GROUP BY source")
     ]
     conn.close()
-    return {"total": total, "enriched": enriched, "buckets": buckets, "by_source": by_source}
+    return {"total": total, "enriched": enriched, "hiring": hiring,
+            "buckets": buckets, "by_source": by_source}
 
 
 # Trạng thái review của job (inbox model) — map sang điều kiện SQL trên job_marks.

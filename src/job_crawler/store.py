@@ -218,12 +218,6 @@ def finish_run(conn: sqlite3.Connection, run_id: int, *, status: str, pages: int
     conn.commit()
 
 
-def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
-    return bool(conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone())
-
-
 def prune(conn: sqlite3.Connection, *, keep_days: int, stale_days: int) -> int:
     """Giữ DB gọn: xoá job đăng lâu hơn `keep_days` ngày (theo posted_at,
     fallback first_seen_at) và job không thấy lại trên nguồn sau `stale_days`
@@ -250,11 +244,6 @@ def prune(conn: sqlite3.Connection, *, keep_days: int, stale_days: int) -> int:
     conn.executemany(
         "DELETE FROM job_marks WHERE source=? AND source_id=?", marks)
     conn.execute(f"DELETE FROM jobs WHERE rowid IN ({qm})", rowids)
-    if _table_exists(conn, "companies"):
-        conn.execute(
-            """DELETE FROM companies WHERE NOT EXISTS (
-                 SELECT 1 FROM jobs WHERE jobs.source=companies.source
-                   AND jobs.company=companies.company)""")
     deleted = len(rowids)
     conn.commit()
     conn.execute("VACUUM")  # đòi hỏi không có transaction mở — vừa commit ở trên

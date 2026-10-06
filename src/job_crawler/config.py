@@ -47,3 +47,8 @@ STALE_DAYS = int(os.environ.get("JC_STALE_DAYS", "7"))
 # Telegram chỉ push job mới có điểm liên quan (theo CV) từ mức này trở lên;
 # đặt 0 để push mọi job mới. Job vẫn được lưu DB bất kể điểm.
 NOTIFY_MIN_RELEVANCE = int(os.environ.get("JC_NOTIFY_MIN_RELEVANCE", "40"))
+
+# --- Thư mục công ty (company_directory) ------------------------------------
+ITVIEC_COMPANY_PAGES = int(os.environ.get("JC_ITVIEC_COMPANY_PAGES", "120"))
+TOPCV_SITEMAP_PAGES = int(os.environ.get("JC_TOPCV_SITEMAP_PAGES", "300"))
+COMPANY_ENRICH_BUDGET = int(os.environ.get("JC_COMPANY_ENRICH_BUDGET", "300"))

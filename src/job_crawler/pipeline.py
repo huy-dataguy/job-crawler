@@ -1,10 +1,14 @@
 """Pipeline: crawl các nguồn → làm sạch → chấm điểm liên quan → upsert SQLite
-→ prune data cũ → ghi run manifest. DB chỉ giữ job IT mới + sạch, không raw."""
+→ prune data cũ → ghi run manifest. DB chỉ giữ job IT mới + sạch, không raw.
+
+Ngoài ra: mỗi job gắn công ty vào company_directory (tên chính xác + đang
+tuyển), và lệnh `companies` harvest thư mục công ty đầy đủ từ 3 nguồn."""
 from __future__ import annotations
 
+import json
 import sqlite3
 
-from . import config, itviec, relevance, store, topcv, topdev
+from . import companies_crawl, config, itviec, relevance, store, topcv, topdev
 from .notifier import TelegramError, TelegramNotifier
 
 SOURCES = {"itviec": itviec, "topcv": topcv, "topdev": topdev}
@@ -27,8 +31,10 @@ def _notifier() -> TelegramNotifier | None:
 
 def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
     conn = store.connect(config.DB_PATH)
+    companies_crawl.ensure_directory_tables(conn)
     run_id = store.start_run(conn, name)
     pages = found = new = upd = notified = skipped_non_it = 0
+    seen_slugs: set[str] = set()
     try:
         raw_jobs, pages = SOURCES[name].crawl()
         # DB chỉ giữ job IT (topcv trộn job phi IT — bỏ trước khi lưu)
@@ -50,9 +56,17 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
                 new += 1
             else:
                 upd += 1
+            # Gắn công ty vào thư mục (tên chính xác + đang tuyển)
+            slug = companies_crawl.link_job_company(
+                conn, source=j["source"], company=j.get("company") or "",
+                company_url=j.get("company_url"))
+            if slug:
+                seen_slugs.add(slug)
             # Commit per canonical job.  If a later Telegram call fails, jobs
             # already acknowledged are durable and will not be sent twice.
             conn.commit()
+        companies_crawl.refresh_hiring_flags(conn, name, seen_slugs)
+        conn.commit()
         pruned = store.prune(conn, keep_days=config.KEEP_DAYS,
                              stale_days=config.STALE_DAYS)
         store.finish_run(conn, run_id, status="ok", pages=pages, found=found,
@@ -82,3 +96,39 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
 
 def run_all() -> list[dict]:
     return [run_source(s) for s in ("itviec", "topcv", "topdev")]
+
+
+def run_companies(*, harvest: bool = True) -> dict:
+    """Harvest thư mục công ty (3 nguồn) + enrich quy mô theo ngân sách.
+    Chạy hằng ngày (systemd timer) — tách khỏi nhịp 15 phút của job crawl."""
+    conn = store.connect(config.DB_PATH)
+    companies_crawl.ensure_directory_tables(conn)
+    run_id = store.start_run(conn, "companies")
+    results: dict = {}
+    try:
+        if harvest:
+            for src, fn in (("itviec", companies_crawl.harvest_itviec),
+                            ("topcv", companies_crawl.harvest_topcv),
+                            ("topdev", companies_crawl.harvest_topdev)):
+                try:
+                    results[src] = fn(conn)
+                except Exception as e:
+                    results[src] = {"error": repr(e)[:200]}
+        try:
+            results["enrich"] = companies_crawl.enrich_missing(conn)
+        except Exception as e:
+            results["enrich"] = {"error": repr(e)[:200]}
+        found = sum(
+            r.get("companies", r.get("rows_touched", 0))
+            for r in results.values() if isinstance(r, dict))
+        store.finish_run(conn, run_id, status="ok", pages=0, found=found,
+                         new_count=0, updated_count=0,
+                         note=json.dumps(results, ensure_ascii=False)[:280])
+        return results
+    except Exception as e:
+        conn.rollback()
+        store.finish_run(conn, run_id, status="error", pages=0, found=0,
+                         new_count=0, updated_count=0, note=repr(e)[:300])
+        raise
+    finally:
+        conn.close()

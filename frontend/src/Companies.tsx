@@ -13,12 +13,14 @@ type Company = {
   num_employees: string | null;
   bucket: string | null;
   fetched_at: string | null;
+  is_hiring: number;
   job_count: number;
 };
 
 type CompanyStats = {
   total: number;
   enriched: number;
+  hiring: number;
   buckets: { bucket: string; n: number }[];
   by_source: { source: string; n: number }[];
 };
@@ -39,16 +41,18 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
   const [q, setQ] = useState("");
   const [source, setSource] = useState("");
   const [bucket, setBucket] = useState("");
+  const [hiring, setHiring] = useState(0);
   const [page, setPage] = useState(1);
 
   const stats = useQuery({ queryKey: ["company-stats"], queryFn: () => get<CompanyStats>("/api/company-stats") });
   const companies = useQuery({
-    queryKey: ["companies", q, source, bucket, page],
+    queryKey: ["companies", q, source, bucket, hiring, page],
     queryFn: () => {
       const p = new URLSearchParams();
       if (q) p.set("q", q);
       if (source) p.set("source", source);
       if (bucket) p.set("bucket", bucket);
+      if (hiring) p.set("hiring", "1");
       p.set("limit", "30");
       p.set("offset", String((page - 1) * 30));
       return get<{ total: number; companies: Company[] }>(`/api/companies?${p.toString()}`);
@@ -65,7 +69,7 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi label="Tổng công ty" value={stats.data?.total ?? "–"} sub={`${stats.data?.by_source.map(s=>`${s.source} ${s.n}`).join(" · ") || ""}`} />
         <Kpi label="Đã có quy mô" value={stats.data?.enriched ?? "–"} sub={`${coverage}% coverage`} accent />
-        <Kpi label="Chưa có quy mô" value={stats.data ? stats.data.total - stats.data.enriched : "–"} sub="cần enrich thêm" />
+        <Kpi label="Đang tuyển" value={stats.data?.hiring ?? "–"} sub="có tin đang đăng" accent />
         <Kpi label="Bucket nổi bật" value={useMemo(()=>{ if(!stats.data) return "–"; const m = [...stats.data.buckets].sort((a,b)=>b.n-a.n)[0]; return m ? `${m.bucket} (${m.n})` : "–";}, [stats.data])} sub="nhiều nhất" />
       </div>
 
@@ -112,6 +116,10 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
               <button key={s||"all"} onClick={()=>{setSource(s); setPage(1);}} className={`px-3 py-1 rounded-full text-xs font-medium transition ${source===s ? "bg-ember text-white" : "text-dim hover:text-mist"}`}>{s || "Tất cả"}</button>
             ))}
           </div>
+          <button onClick={()=>{setHiring(hiring?0:1); setPage(1);}}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${hiring ? "bg-mint text-night border-mint" : "bg-night border-edge text-dim hover:border-faint"}`}>
+            💼 Đang tuyển
+          </button>
           <span className="font-mono text-xs text-faint self-center hidden sm:inline">{total} công ty</span>
         </div>
 
@@ -141,6 +149,7 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
                         <div className="flex items-center gap-2">
                           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SOURCE_DOT[c.source] || "bg-faint"}`} />
                           <span className="font-medium truncate max-w-[260px]">{c.company}</span>
+                          {!!c.is_hiring && <span className="px-1.5 rounded bg-mint/15 text-mint text-[10px] font-semibold shrink-0">đang tuyển</span>}
                         </div>
                         <span className="sm:hidden font-mono text-xs text-faint">{c.source} · {c.bucket || "unknown"}</span>
                       </td>
@@ -178,7 +187,7 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
         )}
       </div>
       <p className="font-mono text-xs text-faint">
-        Nguồn: ITviec (Company size trong job detail), TopDev (company_size RSC), TopCV (Quy mô — headless). Dữ liệu enrich {stats.data?.enriched}/{stats.data?.total} · TopCV chưa enrich do Cloudflare.
+        Thư mục harvest: TopCV qua sitemap (đầy đủ), ITviec directory phân trang, TopDev trang đầu + tích lũy từ tin đăng. Đã enrich quy mô {stats.data?.enriched}/{stats.data?.total} — enrich chạy tiếp mỗi ngày theo ngân sách.
       </p>
     </div>
   );
