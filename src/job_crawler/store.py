@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS job_marks (
   source_id TEXT NOT NULL,
   viewed    INTEGER NOT NULL DEFAULT 0,
   hidden    INTEGER NOT NULL DEFAULT 0,
+  applied   INTEGER NOT NULL DEFAULT 0,
   marked_at TEXT NOT NULL,
   PRIMARY KEY (source, source_id)
 );
@@ -123,6 +124,10 @@ def connect(db_path: Path) -> sqlite3.Connection:
                 (score, matched, r["rowid"]),
             )
     conn.executescript(_SCHEMA_MARKS)
+    # Migration job_marks: thêm cột applied (dashboard dùng, store giữ schema đồng bộ)
+    mcols = {r[1] for r in conn.execute("PRAGMA table_info(job_marks)")}
+    if "applied" not in mcols:
+        conn.execute("ALTER TABLE job_marks ADD COLUMN applied INTEGER NOT NULL DEFAULT 0")
     conn.executescript(_SCHEMA_REST)
     # Backfill FTS standalone cho dữ liệu hiện có
     n_jobs = conn.execute("SELECT count(*) FROM jobs").fetchone()[0]

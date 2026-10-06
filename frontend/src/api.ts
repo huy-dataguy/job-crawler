@@ -35,10 +35,26 @@ export type Job = {
   is_new: number;
   viewed: number;
   hidden: number;
+  applied: number;
   company_size_raw: string | null;
   company_bucket: string | null;
   company_num_employees: string | null;
 };
+
+export type Stats = {
+  total: number;
+  active: number;
+  new_24h: number;
+  companies: number;
+  top_exp: { experience: string; n: number }[];
+  top_categories: { category: string; n: number }[];
+  topcv_top_exp: { experience: string; n: number }[];
+  itviec_top_categories: { category: string; n: number }[];
+  queue?: { unseen: number; viewed: number; applied: number; hidden: number };
+  generated_at: string;
+};
+
+export type MarkState = "unseen" | "viewed" | "applied" | "hidden" | "all";
 
 export type Filters = {
   q: string;
@@ -54,6 +70,8 @@ export type Filters = {
   sort: string;
   show_hidden: number;
   company_size: string;
+  relevance_min: number;
+  mark: MarkState;
 };
 
 async function get<T>(url: string): Promise<T> {
@@ -70,8 +88,11 @@ export function filterParams(f: Filters): string {
   p.set("show_hidden", String(f.show_hidden ?? 0));
   if ((f as any).company_size) p.set("company_size", (f as any).company_size);
   if (f.sort && f.sort !== "auto") p.set("sort", f.sort);
+  if (f.relevance_min) p.set("relevance_min", String(f.relevance_min));
+  if (f.mark && f.mark !== "all") p.set("mark", f.mark);
   for (const [k, v] of Object.entries(f)) {
-    if (k === "it_only" || k === "since_hours" || k === "salary_min" || k === "sort" || k === "show_hidden" || k === "company_size") continue;
+    if (["it_only", "since_hours", "salary_min", "sort", "show_hidden", "company_size",
+         "relevance_min", "mark"].includes(k)) continue;
     if (v) p.set(k, String(v));
   }
   return p.toString();
@@ -80,17 +101,7 @@ export function filterParams(f: Filters): string {
 export const fetchMeta = (f: Filters) => get<Meta>("/api/meta?" + filterParams(f));
 
 export const fetchStats = (f: Filters) =>
-  get<{
-    total: number;
-    active: number;
-    new_24h: number;
-    companies: number;
-    top_exp: { experience: string; n: number }[];
-    top_categories: { category: string; n: number }[];
-    topcv_top_exp: { experience: string; n: number }[];
-    itviec_top_categories: { category: string; n: number }[];
-    generated_at: string;
-  }>("/api/stats?" + filterParams(f));
+  get<Stats>("/api/stats?" + filterParams(f));
 
 export const fetchTrend = (f: Filters) =>
   get<{ sources: string[]; days: any[] }>("/api/trend?days=14&" + filterParams(f));
@@ -102,7 +113,7 @@ export function fetchJobs(f: Filters, page: number) {
   return get<{ total: number; jobs: Job[] }>("/api/jobs?" + p.toString());
 }
 
-export async function markJob(source: string, source_id: string, patch: { viewed?: number; hidden?: number }) {
+export async function markJob(source: string, source_id: string, patch: { viewed?: number; hidden?: number; applied?: number }) {
   const r = await fetch("/api/mark", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

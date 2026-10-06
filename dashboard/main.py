@@ -38,7 +38,11 @@ def db() -> sqlite3.Connection:
     conn.execute("""CREATE TABLE IF NOT EXISTS job_marks (
         source TEXT NOT NULL, source_id TEXT NOT NULL,
         viewed INTEGER NOT NULL DEFAULT 0, hidden INTEGER NOT NULL DEFAULT 0,
+        applied INTEGER NOT NULL DEFAULT 0,
         marked_at TEXT NOT NULL, PRIMARY KEY (source, source_id))""")
+    mcols = {r[1] for r in conn.execute("PRAGMA table_info(job_marks)")}
+    if "applied" not in mcols:
+        conn.execute("ALTER TABLE job_marks ADD COLUMN applied INTEGER NOT NULL DEFAULT 0")
     try:
         from job_crawler.company_enrich import ensure_company_tables
 
@@ -53,6 +57,7 @@ class MarkBody(BaseModel):
     source_id: str
     viewed: int | None = None  # 0/1, None = giữ nguyên
     hidden: int | None = None
+    applied: int | None = None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -69,17 +74,19 @@ if FRONTEND_DIST.is_dir():
 def api_mark(body: MarkBody):
     conn = db()
     now = datetime.now().isoformat(timespec="seconds")
-    cur = conn.execute("SELECT viewed, hidden FROM job_marks WHERE source=? AND source_id=?",
+    cur = conn.execute("SELECT viewed, hidden, applied FROM job_marks WHERE source=? AND source_id=?",
                        (body.source, body.source_id)).fetchone()
     viewed = body.viewed if body.viewed is not None else (cur["viewed"] if cur else 0)
     hidden = body.hidden if body.hidden is not None else (cur["hidden"] if cur else 0)
-    conn.execute("""INSERT INTO job_marks(source, source_id, viewed, hidden, marked_at)
-                    VALUES (?,?,?,?,?)
-                    ON CONFLICT(source, source_id) DO UPDATE SET viewed=?, hidden=?, marked_at=?""",
-                 (body.source, body.source_id, viewed, hidden, now, viewed, hidden, now))
+    applied = body.applied if body.applied is not None else (cur["applied"] if cur else 0)
+    conn.execute("""INSERT INTO job_marks(source, source_id, viewed, hidden, applied, marked_at)
+                    VALUES (?,?,?,?,?,?)
+                    ON CONFLICT(source, source_id) DO UPDATE SET viewed=?, hidden=?, applied=?, marked_at=?""",
+                 (body.source, body.source_id, viewed, hidden, applied, now,
+                  viewed, hidden, applied, now))
     conn.commit()
     conn.close()
-    return {"ok": True, "viewed": viewed, "hidden": hidden}
+    return {"ok": True, "viewed": viewed, "hidden": hidden, "applied": applied}
 
 
 @app.get("/api/companies")
@@ -137,22 +144,42 @@ def api_company_stats():
     return {"total": total, "enriched": enriched, "buckets": buckets, "by_source": by_source}
 
 
+# Trạng thái review của job (inbox model) — map sang điều kiện SQL trên job_marks.
+_MARK_CONDS = {
+    "unseen": "COALESCE(job_marks.viewed,0)=0 AND COALESCE(job_marks.applied,0)=0"
+              " AND COALESCE(job_marks.hidden,0)=0",
+    "viewed": "COALESCE(job_marks.viewed,0)=1 AND COALESCE(job_marks.applied,0)=0"
+              " AND COALESCE(job_marks.hidden,0)=0",
+    "applied": "COALESCE(job_marks.applied,0)=1",
+    "hidden": "COALESCE(job_marks.hidden,0)=1",
+}
+
+
 @app.get("/api/jobs")
 def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
              q: str = "", category: str = "", exp: str = "", tag: str = "",
              skill: str = "", level: str = "", salary_min: float = 0,
              it_only: int = 1, show_hidden: int = 0, company_size: str = "",
-             since_hours: int = 0, sort: str = "auto"):
-    """Bảng đồng nhất xuyên nguồn: mọi filter (q/exp/level/category/skill/salary)
-    đều chạy cho cả 3 nguồn. exp itviec/topdev là ước tính từ level trong title."""
+             since_hours: int = 0, sort: str = "auto", relevance_min: int = 0,
+             mark: str = "all"):
+    """Bảng đồng nhất xuyên nguồn. `mark` = trạng thái review (unseen/viewed/
+    applied/hidden/all); `relevance_min` = ngưỡng khớp profile CV."""
     conn = db()
     frm, where_s, params, use_fts = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
-        level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours)
-    if company_size:
+        level=level, salary_min=salary_min, it_only=it_only,
+        since_hours=since_hours, company_size=company_size,
+        relevance_min=relevance_min)
+    # Luôn JOIN marks: cần viewed/applied/hidden cho lọc + hiển thị
+    if "job_marks" not in frm:
+        frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
+    base_where = where_s
+    if mark in _MARK_CONDS:
+        base_where += f" AND {_MARK_CONDS[mark]}"
+    elif not show_hidden:
+        base_where += " AND COALESCE(job_marks.hidden,0)=0"
+    if "companies" not in frm:
         frm += " LEFT JOIN companies ON companies.source=jobs.source AND companies.company=jobs.company"
-        where_s += " AND companies.bucket=?"
-        params.append(company_size)
     if sort == "posted":
         order = "jobs.posted_at DESC NULLS LAST"
     elif sort == "new":
@@ -165,21 +192,7 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     else:
         # search từ khóa: khớp từ khóa trước, điểm profile cộng thêm
         order = "bm25(jobs_fts), COALESCE(jobs.relevance, 0) DESC"
-    # ẩn hidden mặc định, JOIN job_marks
-    base_where = where_s
-    base_params = list(params)
-    base_frm = frm
-    has_marks = "job_marks" in base_frm
-    if not show_hidden:
-        if not has_marks:
-            base_frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
-        base_where += " AND COALESCE(job_marks.hidden,0)=0"
-    else:
-        if not has_marks:
-            base_frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
-    if "companies" not in base_frm:
-        base_frm += " LEFT JOIN companies ON companies.source=jobs.source AND companies.company=jobs.company"
-    total = conn.execute(f"SELECT count(*) FROM {base_frm} WHERE {base_where}", base_params).fetchone()[0]
+    total = conn.execute(f"SELECT count(*) FROM {frm} WHERE {base_where}", params).fetchone()[0]
     rows = conn.execute(
         f"""SELECT jobs.source, jobs.source_id, jobs.title, jobs.company, jobs.url,
                    jobs.city, jobs.salary, jobs.experience, jobs.exp_min, jobs.category,
@@ -190,11 +203,12 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
                    jobs.first_seen_at, jobs.last_seen_at, jobs.is_new,
                    COALESCE(job_marks.viewed,0) as viewed,
                    COALESCE(job_marks.hidden,0) as hidden,
+                   COALESCE(job_marks.applied,0) as applied,
                    companies.size_raw as company_size_raw,
                    companies.bucket as company_bucket,
                    companies.num_employees as company_num_employees
-             FROM {base_frm} WHERE {base_where} ORDER BY {order} LIMIT ? OFFSET ?""",
-        base_params + [limit, offset],
+             FROM {frm} WHERE {base_where} ORDER BY {order} LIMIT ? OFFSET ?""",
+        params + [limit, offset],
     ).fetchall()
     conn.close()
     return JSONResponse({
@@ -211,7 +225,8 @@ def _q_like(x: str) -> str:
 
 def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "",
               tag: str = "", skill: str = "", level: str = "", salary_min: float = 0,
-              it_only: int = 1, since_hours: int = 0, company_size: str = ""):
+              it_only: int = 1, since_hours: int = 0, company_size: str = "",
+              relevance_min: int = 0):
     """Helper dùng chung: build FROM/WHERE cho mọi endpoint (jobs/stats/trend/meta)
     để filter nào cũng cập nhật mọi số liệu. Cột luôn prefix jobs. tránh ambiguous."""
     use_fts = bool(q.strip())
@@ -223,6 +238,9 @@ def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "
         frm = "jobs"
     if it_only:
         where.append("jobs.is_it = 1")
+    if relevance_min:
+        where.append("COALESCE(jobs.relevance, 0) >= ?")
+        params.append(relevance_min)
     if source:
         where.append("jobs.source=?")
         params.append(source)
@@ -290,12 +308,13 @@ def _exp_cond(bucket: str) -> str | None:
 def api_meta(q: str = "", source: str = "",
              category: str = "", exp: str = "", tag: str = "", skill: str = "",
              level: str = "", salary_min: float = 0, it_only: int = 1,
-             since_hours: int = 0):
+             since_hours: int = 0, relevance_min: int = 0):
     """Facets (counts) cũng tính trên tập đã lọc — chọn filter nào, mọi số đều theo."""
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
-        level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours)
+        level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
+        relevance_min=relevance_min)
     tag_counts: dict[str, int] = {}
     for (tags_json,) in conn.execute(
             f"SELECT jobs.tags FROM {frm} WHERE {where_s} LIMIT 5000", params):
@@ -352,13 +371,14 @@ def api_meta(q: str = "", source: str = "",
 @app.get("/api/trend")
 def api_trend(days: int = Query(14, le=60), q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
-              level: str = "", salary_min: float = 0, it_only: int = 1):
+              level: str = "", salary_min: float = 0, it_only: int = 1, relevance_min: int = 0):
     """Trend việc mới/ngày — tôn trọng filter hiện tại (trừ since_hours)."""
     since = (datetime.now() - timedelta(days=days)).isoformat()
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
-        level=level, salary_min=salary_min, it_only=it_only)
+        level=level, salary_min=salary_min, it_only=it_only,
+        relevance_min=relevance_min)
     rows = conn.execute(
         f"""SELECT date(jobs.posted_at) d, jobs.source, count(*) n
            FROM {frm} WHERE {where_s} AND jobs.posted_at >= ? GROUP BY 1, 2 ORDER BY 1""",
@@ -381,12 +401,13 @@ def api_trend(days: int = Query(14, le=60), q: str = "", source: str = "",
 def api_stats(q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
               level: str = "", salary_min: float = 0, it_only: int = 1,
-              since_hours: int = 0):
+              since_hours: int = 0, relevance_min: int = 0):
     """Mọi KPI + chart phân bố đều tính trên tập đã lọc (giống danh sách job)."""
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
-        level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours)
+        level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
+        relevance_min=relevance_min)
     # Lưu ý thứ tự bind params: placeholder trong SELECT đứng trước WHERE
     ts24 = (datetime.now() - timedelta(hours=24)).isoformat()
     total, active, last24 = conn.execute(
@@ -417,5 +438,14 @@ def api_stats(q: str = "", source: str = "",
                WHERE {where_s} AND jobs.category != '' GROUP BY 1 ORDER BY n DESC LIMIT 12""",
     }.items():
         out[label] = [dict(r) for r in conn.execute(sql, params)]
+    # Queue: số job theo trạng thái review (áp filter hiện tại, không tính mark)
+    queue = {}
+    for k, cond in _MARK_CONDS.items():
+        queue[k] = conn.execute(
+            f"SELECT count(*) FROM {frm} LEFT JOIN job_marks"
+            " ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
+            f" WHERE {where_s} AND {cond}",
+            params).fetchone()[0]
+    out["queue"] = queue
     conn.close()
     return out
