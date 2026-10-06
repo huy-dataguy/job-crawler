@@ -28,6 +28,8 @@ export type Job = {
   salary_max: number | null;
   posted_text: string;
   posted_at: string | null;
+  relevance: number | null;
+  matched: string[];
   first_seen_at: string;
   last_seen_at: string;
   is_new: number;

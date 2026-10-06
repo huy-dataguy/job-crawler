@@ -56,6 +56,12 @@ def format_job(job: dict) -> str:
     skills = _list_text(job.get("skills") or job.get("tags"))
     if skills:
         lines.append(f"🛠 {_text(skills)}")
+    # Điểm khớp profile CV (relevance.py) + các term làm nên điểm
+    rel = job.get("relevance")
+    if rel is not None:
+        matched = _list_text(job.get("matched"))
+        tail = f" — {_text(matched)}" if matched else ""
+        lines.append(f"🎯 Khớp profile: {int(rel)}%{tail}")
     if job.get("posted_text"):
         lines.append(f"🕒 {_text(job.get('posted_text'))}")
 

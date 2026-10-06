@@ -153,14 +153,18 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
         frm += " LEFT JOIN companies ON companies.source=jobs.source AND companies.company=jobs.company"
         where_s += " AND companies.bucket=?"
         params.append(company_size)
-    if sort == "posted" or (sort == "auto" and not use_fts):
+    if sort == "posted":
         order = "jobs.posted_at DESC NULLS LAST"
     elif sort == "new":
         order = "jobs.last_seen_at DESC"
     elif sort == "salary":
         order = "jobs.salary_max DESC NULLS LAST"
+    elif sort == "relevance" or (sort == "auto" and not use_fts):
+        # mặc định: job khớp profile CV trước, rồi mới đăng trước
+        order = "COALESCE(jobs.relevance, 0) DESC, jobs.posted_at DESC NULLS LAST"
     else:
-        order = "bm25(jobs_fts)"  # relevance khi search từ khóa
+        # search từ khóa: khớp từ khóa trước, điểm profile cộng thêm
+        order = "bm25(jobs_fts), COALESCE(jobs.relevance, 0) DESC"
     # ẩn hidden mặc định, JOIN job_marks
     base_where = where_s
     base_params = list(params)
@@ -182,6 +186,7 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
                    jobs.tags, jobs.skills, jobs.is_it, jobs.level,
                    jobs.salary_min, jobs.salary_max,
                    jobs.posted_text, jobs.posted_at,
+                   jobs.relevance, jobs.matched,
                    jobs.first_seen_at, jobs.last_seen_at, jobs.is_new,
                    COALESCE(job_marks.viewed,0) as viewed,
                    COALESCE(job_marks.hidden,0) as hidden,
@@ -195,7 +200,8 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
     return JSONResponse({
         "total": total,
         "jobs": [{**dict(r), "tags": json.loads(r["tags"] or "[]"),
-                  "skills": json.loads(r["skills"] or "[]")} for r in rows],
+                  "skills": json.loads(r["skills"] or "[]"),
+                  "matched": json.loads(r["matched"] or "[]")} for r in rows],
     })
 
 

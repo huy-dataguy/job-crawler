@@ -38,3 +38,12 @@ TELEGRAM_ENABLED = (
 )
 TELEGRAM_TIMEOUT_SECONDS = float(os.environ.get("JC_TELEGRAM_TIMEOUT", "15"))
 TELEGRAM_MIN_INTERVAL_SECONDS = float(os.environ.get("JC_TELEGRAM_MIN_INTERVAL", "1.05"))
+
+# --- DB gọn nhẹ: chỉ giữ data mới nhất, sạch nhất ---------------------------
+# Xoá job đăng lâu hơn KEEP_DAYS ngày (theo posted_at, fallback first_seen_at)
+KEEP_DAYS = int(os.environ.get("JC_KEEP_DAYS", "30"))
+# Xoá job không được thấy lại trên nguồn sau STALE_DAYS ngày (tin đã bị gỡ)
+STALE_DAYS = int(os.environ.get("JC_STALE_DAYS", "7"))
+# Telegram chỉ push job mới có điểm liên quan (theo CV) từ mức này trở lên;
+# đặt 0 để push mọi job mới. Job vẫn được lưu DB bất kể điểm.
+NOTIFY_MIN_RELEVANCE = int(os.environ.get("JC_NOTIFY_MIN_RELEVANCE", "40"))

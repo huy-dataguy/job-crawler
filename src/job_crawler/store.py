@@ -5,7 +5,7 @@ Không lưu raw HTML (ít dung lượng). Idempotent: crawl lại upsert last_se
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 _SCHEMA_TABLES = """
@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   salary_max    REAL,
   posted_text   TEXT,
   posted_at     TEXT,          -- ISO 8601 (ước tính từ "N hours ago")
+  relevance     INTEGER,       -- 0-100: độ khớp profile CV (relevance.py)
+  matched       TEXT,          -- JSON array term khớp (vd ["Python","SQL"])
   first_seen_at TEXT NOT NULL,
   last_seen_at  TEXT NOT NULL,
   seen_count    INTEGER NOT NULL DEFAULT 1,
@@ -87,7 +89,9 @@ def connect(db_path: Path) -> sqlite3.Connection:
                      ("is_it", "INTEGER NOT NULL DEFAULT 1"),
                      ("level", "TEXT"),
                      ("salary_min", "REAL"),
-                     ("salary_max", "REAL")]:
+                     ("salary_max", "REAL"),
+                     ("relevance", "INTEGER"),
+                     ("matched", "TEXT")]:
         if col not in cols:
             conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {ddl}")
     # Drop FTS cũ nếu là bản content-sync/trigger (từng gây corrupt khi UPDATE)
@@ -102,6 +106,22 @@ def connect(db_path: Path) -> sqlite3.Connection:
             DROP TRIGGER IF EXISTS jobs_fts_au;
             DROP TABLE IF EXISTS jobs_fts;
         """)
+    # Backfill điểm liên quan cho data cũ (chạy 1 lần sau khi thêm cột)
+    if conn.execute("SELECT 1 FROM jobs WHERE relevance IS NULL LIMIT 1").fetchone():
+        from . import relevance as _rel
+
+        rows = conn.execute(
+            "SELECT rowid, title, category, tags, skills, level, exp_min"
+            " FROM jobs WHERE relevance IS NULL"
+        ).fetchall()
+        for r in rows:
+            score, matched = _rel.backfill_row(
+                r["title"], r["category"], r["tags"], r["skills"],
+                r["level"], r["exp_min"])
+            conn.execute(
+                "UPDATE jobs SET relevance=?, matched=? WHERE rowid=?",
+                (score, matched, r["rowid"]),
+            )
     conn.executescript(_SCHEMA_MARKS)
     conn.executescript(_SCHEMA_REST)
     # Backfill FTS standalone cho dữ liệu hiện có
@@ -124,6 +144,7 @@ _JOB_COLS = [
     "source", "source_id", "title", "company", "url", "city", "salary",
     "experience", "exp_min", "category", "tags", "skills", "is_it",
     "level", "salary_min", "salary_max", "posted_text", "posted_at",
+    "relevance", "matched",
 ]
 
 
@@ -157,13 +178,16 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> str:
     conn.execute(
         """UPDATE jobs SET title=?, company=?, url=?, city=?, salary=?, experience=?,
              exp_min=?, category=?, tags=?, posted_text=?, posted_at=?, last_seen_at=?,
+             relevance=?, matched=?,
              seen_count=seen_count+1, is_active=1 WHERE source=? AND source_id=?""",
         (
             job.get("title"), job.get("company"), job.get("url"), job.get("city"),
             job.get("salary"), job.get("experience"), job.get("exp_min"),
             job.get("category"),
             job.get("tags"), job.get("posted_text"), job.get("posted_at"),
-            ts, job["source"], job["source_id"],
+            ts,
+            job.get("relevance"), job.get("matched"),
+            job["source"], job["source_id"],
         ),
     )
     _sync_fts(conn, int(cur[0]), job)
@@ -187,3 +211,47 @@ def finish_run(conn: sqlite3.Connection, run_id: int, *, status: str, pages: int
         (now_iso(), status, pages, found, new_count, updated_count, note, run_id),
     )
     conn.commit()
+
+
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+    ).fetchone())
+
+
+def prune(conn: sqlite3.Connection, *, keep_days: int, stale_days: int) -> int:
+    """Giữ DB gọn: xoá job đăng lâu hơn `keep_days` ngày (theo posted_at,
+    fallback first_seen_at) và job không thấy lại trên nguồn sau `stale_days`
+    ngày (tin đã gỡ). Dọn kèm FTS + marks + company enrichment mồ côi, rồi
+    VACUUM để file DB thật sự nhỏ lại. Trả về số job đã xoá.
+
+    So sánh thời gian qua julianday() để đúng với timestamp có offset (+07:00).
+    """
+    now = datetime.now().astimezone()
+    keep_cut = (now - timedelta(days=keep_days)).isoformat(timespec="seconds")
+    stale_cut = (now - timedelta(days=stale_days)).isoformat(timespec="seconds")
+    rows = conn.execute(
+        """SELECT rowid, source, source_id FROM jobs
+           WHERE julianday(COALESCE(NULLIF(posted_at, ''), first_seen_at)) < julianday(?)
+              OR julianday(last_seen_at) < julianday(?)""",
+        (keep_cut, stale_cut),
+    ).fetchall()
+    if not rows:
+        return 0
+    rowids = [r["rowid"] for r in rows]
+    marks = [(r["source"], r["source_id"]) for r in rows]
+    qm = ",".join("?" * len(rowids))
+    conn.execute(f"DELETE FROM jobs_fts WHERE rowid IN ({qm})", rowids)
+    conn.executemany(
+        "DELETE FROM job_marks WHERE source=? AND source_id=?", marks)
+    conn.execute(f"DELETE FROM jobs WHERE rowid IN ({qm})", rowids)
+    if _table_exists(conn, "companies"):
+        conn.execute(
+            """DELETE FROM companies WHERE NOT EXISTS (
+                 SELECT 1 FROM jobs WHERE jobs.source=companies.source
+                   AND jobs.company=companies.company)""")
+    deleted = len(rowids)
+    conn.commit()
+    conn.execute("VACUUM")  # đòi hỏi không có transaction mở — vừa commit ở trên
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    return deleted

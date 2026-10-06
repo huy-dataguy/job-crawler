@@ -71,6 +71,14 @@ function JobRow({ job: j, onChanged }: { job: Job; onChanged?: () => void }) {
           {isFresh(j.posted_at, j.first_seen_at) && (
             <span className="px-1.5 rounded bg-mint text-night text-[10px] font-semibold">mới</span>
           )}
+          {!!j.relevance && j.relevance >= 40 && (
+            <span
+              title={`Khớp profile CV: ${(j.matched || []).join(", ")}`}
+              className={`px-1.5 rounded text-[10px] font-semibold cursor-help ${j.relevance >= 70 ? "bg-mint/20 text-mint" : "bg-violet/15 text-violet"}`}
+            >
+              {j.relevance}% khớp
+            </span>
+          )}
           {viewed && <span className="px-1.5 rounded bg-edge text-faint text-[10px]">đã xem</span>}
           {hidden && <span className="px-1.5 rounded bg-red-500 text-white text-[10px]">không OK</span>}
         </div>
