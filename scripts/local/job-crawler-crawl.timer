@@ -1,0 +1,11 @@
+[Unit]
+Description=Job Crawler — chạy crawl mỗi 15 phút
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+# tránh lượt chạy chồng nhau: dịch vụ là oneshot, systemd sẽ không start lượt
+# mới khi lượt cũ còn chạy (đơn vị same service = không chạy song song)
+
+[Install]
+WantedBy=timers.target

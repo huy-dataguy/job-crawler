@@ -16,7 +16,16 @@ Windmill (:8131) chạy crawler mỗi 15 phút (00, 15, 30, 45 — Asia/Ho_Chi_M
 ## Tính năng
 
 - Deduplicate theo `source + source_id`; crawl lại chỉ cập nhật `last_seen_at`.
-- Telegram chỉ báo job vừa được insert. Gửi lỗi thì job chưa commit và sẽ retry ở lượt sau.
+- **Liên quan cá nhân hoá**: mỗi job được chấm điểm 0–100 khớp profile CV
+  (Data Engineer là hướng chính, FullStack là hướng phụ — xem
+  `src/job_crawler/relevance.py`). Dashboard mặc định xếp "liên quan nhất";
+  badge `% khớp` hiện trên mỗi job (hover xem term khớp).
+- **DB gọn nhẹ, không raw**: chỉ lưu job IT đã làm sạch (non-IT bị bỏ trước khi
+  lưu); job đăng quá `JC_KEEP_DAYS` ngày hoặc biến mất khỏi nguồn sau
+  `JC_STALE_DAYS` ngày sẽ bị xoá (kèm FTS/marks/enrichment mồ côi) rồi
+  `VACUUM` — DB thực tế ~200 KB cho ~180 job.
+- Telegram chỉ push job mới có điểm liên quan ≥ `JC_NOTIFY_MIN_RELEVANCE`
+  (kèm dòng `🎯 Khớp profile: N%`). Gửi lỗi thì job chưa commit và sẽ retry ở lượt sau.
 - Dashboard React/FastAPI: search, filter, đánh dấu đã xem/ẩn và thống kê.
 - Windmill có `no_flow_overlap`: lượt quét chậm không tạo lượt chạy chồng.
 - ITviec và TopDev được xử lý trước; TopCV fetch qua curl_cffi impersonate TLS (chrome124/136/safari184) để vượt Cloudflare — không cần browser.
@@ -186,6 +195,29 @@ uv run job-crawler itviec
 JC_TELEGRAM_ENABLED=0 uv run job-crawler itviec
 ```
 
+## Chạy local tự động (systemd timer — nhẹ nhất, không cần Windmill/Docker)
+
+```bash
+bash scripts/local/install.sh
+```
+
+Script làm 3 việc: tạo `.env` (nếu chưa có) để điền secret Telegram, cài
+systemd user units (crawl 15 phút/lượt + dashboard nền `127.0.0.1:8130`),
+enable cả hai. Kiểm tra:
+
+```bash
+systemctl --user list-timers job-crawler-crawl.timer
+curl -s localhost:8130/api/stats | head -c 200
+journalctl --user -u job-crawler-crawl.service -n 20 --no-pager
+```
+
+Muốn dashboard/timer chạy ngay cả khi chưa đăng nhập GUI, bật linger:
+`loginctl enable-linger` (cần quyền admin). Dừng/huỷ:
+
+```bash
+systemctl --user disable --now job-crawler-crawl.timer job-crawler-dashboard.service
+```
+
 ## Kiểm tra sau khi cài
 
 Chạy ở repository root:
@@ -225,6 +257,9 @@ Trong Windmill UI, xác nhận schedule `u/jobcrawler/schedule_crawl_jobcrawl` �
 | `JC_MAX_PAGES_ITVIEC` | `3` | Trang ITviec tối đa/lượt |
 | `JC_MAX_PAGES_TOPCV` | `3` | Trang TopCV tối đa/lượt |
 | `JC_MAX_PAGES_TOPDEV` | `4` | Trang TopDev tối đa/lượt |
+| `JC_KEEP_DAYS` | `30` | Giữ job đăng trong vòng N ngày (quá thì xoá) |
+| `JC_STALE_DAYS` | `7` | Xoá job không thấy lại trên nguồn sau N ngày |
+| `JC_NOTIFY_MIN_RELEVANCE` | `40` | Ngưỡng điểm CV để push Telegram (0 = push mọi job mới) |
 | `JC_DELAY` | `2.0` | Giãn request, đơn vị giây |
 | `TELEGRAM_BOT_TOKEN` | — | Token bot (chỉ local hoặc Windmill Secret) |
 | `TELEGRAM_CHAT_ID` | — | Chat nhận alert (chỉ local hoặc Windmill Secret) |
