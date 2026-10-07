@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { Fragment, useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
@@ -12,9 +12,16 @@ type Company = {
   size_max: number | null;
   num_employees: string | null;
   bucket: string | null;
+  industry: string | null;
+  description: string | null;
   fetched_at: string | null;
   is_hiring: number;
   job_count: number;
+};
+
+type JobLite = {
+  source: string; source_id: string; title: string; url: string;
+  salary: string; level: string; relevance: number | null; posted_at: string | null;
 };
 
 type CompanyStats = {
@@ -43,6 +50,7 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
   const [bucket, setBucket] = useState("");
   const [hiring, setHiring] = useState(0);
   const [page, setPage] = useState(1);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const stats = useQuery({ queryKey: ["company-stats"], queryFn: () => get<CompanyStats>("/api/company-stats") });
   const companies = useQuery({
@@ -136,6 +144,7 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
                   <tr>
                     <th className="text-left py-2.5 px-3 font-medium">Công ty</th>
                     <th className="text-left px-2 hidden sm:table-cell">Nguồn</th>
+                    <th className="text-left px-2 hidden lg:table-cell">Lĩnh vực</th>
                     <th className="text-left px-2">Quy mô</th>
                     <th className="text-left px-2 hidden md:table-cell">Bucket</th>
                     <th className="text-right px-2">Jobs</th>
@@ -144,16 +153,21 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
                 </thead>
                 <tbody className="divide-y divide-edge">
                   {companies.data.companies.map(c=>(
-                    <tr key={`${c.source}-${c.company}`} className="hover:bg-night/60 transition">
+                    <Fragment key={`${c.source}-${c.company}`}>
+                    <tr
+                        onClick={()=>setExpanded(expanded===`${c.source}-${c.company}`?null:`${c.source}-${c.company}`)}
+                        className="hover:bg-night/60 transition cursor-pointer">
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-2">
                           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${SOURCE_DOT[c.source] || "bg-faint"}`} />
                           <span className="font-medium truncate max-w-[260px]">{c.company}</span>
                           {!!c.is_hiring && <span className="px-1.5 rounded bg-mint/15 text-mint text-[10px] font-semibold shrink-0">đang tuyển</span>}
+                          <span className="text-faint text-[10px]">{expanded===`${c.source}-${c.company}`?"▴":"▾"}</span>
                         </div>
                         <span className="sm:hidden font-mono text-xs text-faint">{c.source} · {c.bucket || "unknown"}</span>
                       </td>
                       <td className="px-2 hidden sm:table-cell font-mono text-xs text-faint">{c.source}</td>
+                      <td className="px-2 hidden lg:table-cell text-xs text-dim truncate max-w-[180px]">{c.industry || "—"}</td>
                       <td className="px-2">
                         {c.size_raw ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-night border border-edge text-xs">
@@ -173,6 +187,12 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
                         </div>
                       </td>
                     </tr>
+                    {expanded===`${c.source}-${c.company}` && (
+                      <tr><td colSpan={6} className="px-4 pb-4 bg-night/40">
+                        <CompanyDetail company={c} onFilterCompany={onFilterCompany} />
+                      </td></tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -189,6 +209,47 @@ export default function Companies({ onFilterCompany }: { onFilterCompany?: (c: C
       <p className="font-mono text-xs text-faint">
         Thư mục harvest: TopCV qua sitemap (đầy đủ), ITviec directory phân trang, TopDev trang đầu + tích lũy từ tin đăng. Đã enrich quy mô {stats.data?.enriched}/{stats.data?.total} — enrich chạy tiếp mỗi ngày theo ngân sách.
       </p>
+    </div>
+  );
+}
+
+function CompanyDetail({ company: c, onFilterCompany }: { company: Company; onFilterCompany?: (c: Company) => void }) {
+  const jobs = useQuery({
+    queryKey: ["company-jobs", c.source, c.company],
+    queryFn: async () => {
+      const p = new URLSearchParams({ company: c.company, source: c.source, limit: "10", sort: "relevance", relevance_min: "0" });
+      const r = await fetch(`/api/jobs?${p.toString()}`);
+      if (!r.ok) throw new Error(`${r.status}`);
+      return (await r.json()) as { total: number; jobs: JobLite[] };
+    },
+    staleTime: 60_000,
+  });
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 text-sm sm:grid-cols-2">
+        <div><span className="font-mono text-xs text-faint">Lĩnh vực: </span>{c.industry || "—"}</div>
+        <div><span className="font-mono text-xs text-faint">Quy mô: </span>{c.size_raw || "—"}{c.num_employees ? ` (${c.num_employees} NV)` : ""}</div>
+      </div>
+      {c.description && <p className="text-sm text-dim leading-relaxed line-clamp-4">{c.description}</p>}
+      <div>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <h4 className="font-semibold text-sm">Việc đang tuyển <span className="font-mono text-xs text-faint">{jobs.data?.total ?? ""}</span></h4>
+          <button onClick={()=>onFilterCompany?.(c)} className="px-2.5 py-1 rounded-full bg-violet text-white text-xs font-medium hover:brightness-110">xem trong Inbox →</button>
+        </div>
+        {jobs.isPending ? <div className="font-mono text-xs text-faint">đang tải…</div> :
+         !jobs.data?.jobs.length ? <p className="text-sm text-faint">Không có tin nào trong DB — việc của công ty này nằm ngoài các trang crawl hiện tại.</p> : (
+          <ul className="divide-y divide-edge rounded-[10px] border border-edge overflow-hidden">
+            {jobs.data.jobs.map(j=>(
+              <li key={`${j.source}-${j.source_id}`} className="flex items-center gap-2 px-3 py-2 bg-panel text-sm hover:bg-night/60">
+                <a href={j.url} target="_blank" rel="noreferrer" className="flex-1 min-w-0 truncate font-medium hover:text-violet">{j.title}</a>
+                {!!j.relevance && j.relevance >= 40 && <span className={`px-1.5 rounded text-[10px] font-semibold shrink-0 ${j.relevance >= 70 ? "bg-mint/15 text-mint" : "bg-violet/15 text-violet"}`}>{j.relevance}%</span>}
+                {j.salary && j.salary !== "N/A" && <span className="font-mono text-xs text-mint shrink-0 hidden sm:inline">{j.salary}</span>}
+                {j.level && <span className="text-xs text-faint shrink-0 hidden md:inline">{j.level}</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

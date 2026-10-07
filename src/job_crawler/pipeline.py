@@ -115,6 +115,13 @@ def run_companies(*, harvest: bool = True) -> dict:
                 except Exception as e:
                     results[src] = {"error": repr(e)[:200]}
         try:
+            # Row enrich bằng parser cũ (chỉ size) → cho fetch lại 1 lần để
+            # bọc nốt ngành nghề/mô tả/job itviec; sentinel '' chống lặp
+            conn.execute(
+                """UPDATE company_directory SET enriched_at=NULL
+                   WHERE detail_url IS NOT NULL AND industry IS NULL
+                     AND enriched_at IS NOT NULL""")
+            conn.commit()
             results["enrich"] = companies_crawl.enrich_missing(conn)
         except Exception as e:
             results["enrich"] = {"error": repr(e)[:200]}

@@ -18,7 +18,7 @@ declare global {
 const DEFAULT_FILTERS: Filters = {
   q: "", source: "", category: "", exp: "", tag: "", skill: "", level: "",
   salary_min: 0, it_only: 1, since_hours: 0, sort: "auto", show_hidden: 0,
-  company_size: "", relevance_min: 40, mark: "unseen",
+  company_size: "", relevance_min: 40, mark: "unseen", company: "",
 };
 
 const SORTS = [
@@ -118,7 +118,7 @@ export default function App() {
 
       {view === "companies" ? (
         <main className="max-w-[1280px] mx-auto px-4 md:px-6 py-5">
-          <Companies onFilterCompany={(c) => { setFilters({ ...DEFAULT_FILTERS, company_size: c.bucket || "" }); setView("inbox"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+          <Companies onFilterCompany={(c) => { setF({ ...DEFAULT_FILTERS, company: c.company, source: c.source, relevance_min: 0 }); setView("inbox"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
         </main>
       ) : view === "stats" ? (
         <main className="max-w-[1280px] mx-auto px-4 md:px-6 py-5 space-y-5">

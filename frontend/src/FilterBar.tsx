@@ -188,6 +188,7 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
   if (filters.q) pills.push({ label: `“${filters.q}”`, clear: () => setF({ ...filters, q: "" }) });
   if (filters.relevance_min) pills.push({ label: `khớp ≥${filters.relevance_min}`, clear: () => setF({ ...filters, relevance_min: 0 }) });
   if (filters.source) pills.push({ label: `nguồn ${filters.source}`, clear: () => setF({ ...filters, source: "" }) });
+  if ((filters as any).company) pills.push({ label: `công ty ${(filters as any).company.slice(0, 30)}`, clear: () => setF({ ...filters, company: "" } as Filters) });
   if (filters.since_hours) pills.push({ label: `đăng ${SINCE_OPTIONS.find((o) => o.v === filters.since_hours)?.label}`, clear: () => setF({ ...filters, since_hours: 0 }) });
   if (filters.skill) pills.push({ label: `kỹ năng ${filters.skill}`, clear: () => setF({ ...filters, skill: "" }) });
   if (filters.category) pills.push({ label: `ngành ${filters.category}`, clear: () => setF({ ...filters, category: "" }) });

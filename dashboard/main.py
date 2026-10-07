@@ -124,6 +124,7 @@ def api_companies(
     rows = conn.execute(
         f"""SELECT d.source, d.name AS company, d.slug AS company_slug, d.detail_url,
                    d.size_raw, d.size_min, d.size_max, d.num_employees, d.bucket,
+                   d.industry, d.description,
                    d.enriched_at AS fetched_at, d.is_hiring,
                    COALESCE(j.n, 0) AS job_count
             FROM {frm} WHERE {where_s}
@@ -176,7 +177,7 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
              skill: str = "", level: str = "", salary_min: float = 0,
              it_only: int = 1, show_hidden: int = 0, company_size: str = "",
              since_hours: int = 0, sort: str = "auto", relevance_min: int = 0,
-             mark: str = "all"):
+             mark: str = "all", company: str = ""):
     """Bảng đồng nhất xuyên nguồn. `mark` = trạng thái review (unseen/viewed/
     applied/hidden/all); `relevance_min` = ngưỡng khớp profile CV."""
     conn = db()
@@ -184,7 +185,7 @@ def api_jobs(limit: int = Query(100, le=500), offset: int = 0, source: str = "",
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only,
         since_hours=since_hours, company_size=company_size,
-        relevance_min=relevance_min)
+        relevance_min=relevance_min, company=company)
     # Luôn JOIN marks: cần viewed/applied/hidden cho lọc + hiển thị
     if "job_marks" not in frm:
         frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
@@ -241,7 +242,7 @@ def _q_like(x: str) -> str:
 def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "",
               tag: str = "", skill: str = "", level: str = "", salary_min: float = 0,
               it_only: int = 1, since_hours: int = 0, company_size: str = "",
-              relevance_min: int = 0):
+              relevance_min: int = 0, company: str = ""):
     """Helper dùng chung: build FROM/WHERE cho mọi endpoint (jobs/stats/trend/meta)
     để filter nào cũng cập nhật mọi số liệu. Cột luôn prefix jobs. tránh ambiguous."""
     use_fts = bool(q.strip())
@@ -259,6 +260,9 @@ def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "
     if source:
         where.append("jobs.source=?")
         params.append(source)
+    if company:
+        where.append("jobs.company=?")
+        params.append(company)
     if category:
         where.append("jobs.category=?")
         params.append(category)
@@ -325,13 +329,13 @@ def _exp_cond(bucket: str) -> str | None:
 def api_meta(q: str = "", source: str = "",
              category: str = "", exp: str = "", tag: str = "", skill: str = "",
              level: str = "", salary_min: float = 0, it_only: int = 1,
-             since_hours: int = 0, relevance_min: int = 0):
+             since_hours: int = 0, relevance_min: int = 0, company: str = ""):
     """Facets (counts) cũng tính trên tập đã lọc — chọn filter nào, mọi số đều theo."""
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
-        relevance_min=relevance_min)
+        relevance_min=relevance_min, company=company)
     tag_counts: dict[str, int] = {}
     for (tags_json,) in conn.execute(
             f"SELECT jobs.tags FROM {frm} WHERE {where_s} LIMIT 5000", params):
@@ -388,14 +392,14 @@ def api_meta(q: str = "", source: str = "",
 @app.get("/api/trend")
 def api_trend(days: int = Query(14, le=60), q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
-              level: str = "", salary_min: float = 0, it_only: int = 1, relevance_min: int = 0):
+              level: str = "", salary_min: float = 0, it_only: int = 1, relevance_min: int = 0, company: str = ""):
     """Trend việc mới/ngày — tôn trọng filter hiện tại (trừ since_hours)."""
     since = (datetime.now() - timedelta(days=days)).isoformat()
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only,
-        relevance_min=relevance_min)
+        relevance_min=relevance_min, company=company)
     rows = conn.execute(
         f"""SELECT date(jobs.posted_at) d, jobs.source, count(*) n
            FROM {frm} WHERE {where_s} AND jobs.posted_at >= ? GROUP BY 1, 2 ORDER BY 1""",
@@ -418,13 +422,13 @@ def api_trend(days: int = Query(14, le=60), q: str = "", source: str = "",
 def api_stats(q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
               level: str = "", salary_min: float = 0, it_only: int = 1,
-              since_hours: int = 0, relevance_min: int = 0):
+              since_hours: int = 0, relevance_min: int = 0, company: str = ""):
     """Mọi KPI + chart phân bố đều tính trên tập đã lọc (giống danh sách job)."""
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
-        relevance_min=relevance_min)
+        relevance_min=relevance_min, company=company)
     # Lưu ý thứ tự bind params: placeholder trong SELECT đứng trước WHERE
     ts24 = (datetime.now() - timedelta(hours=24)).isoformat()
     total, active, last24 = conn.execute(

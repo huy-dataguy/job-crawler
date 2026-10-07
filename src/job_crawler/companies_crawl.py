@@ -23,6 +23,9 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
 from . import config
+from . import normalize
+from . import relevance
+from . import store
 from .company_enrich import bucket_for, parse_size_range
 
 _S = curl_requests.Session(impersonate="chrome124")
@@ -67,6 +70,11 @@ CREATE INDEX IF NOT EXISTS idx_company_dir_name ON company_directory (name);
 
 def ensure_directory_tables(conn: sqlite3.Connection) -> None:
     conn.executescript(_SCHEMA)
+    # Migration nhẹ: thêm cột mô tả/lĩnh vực cho DB đã có company_directory
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(company_directory)")}
+    for col, ddl in [("industry", "TEXT"), ("description", "TEXT")]:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE company_directory ADD COLUMN {col} {ddl}")
     conn.commit()
 
 
@@ -335,8 +343,32 @@ def _fetch(url: str) -> str | None:
         return None
 
 
-def _enrich_topcv(html: str) -> tuple[str | None, str | None]:
-    """(size_raw, real_name) từ trang công ty topcv."""
+def _label_sibling(soup: BeautifulSoup, label_re: str, max_len: int = 300) -> str | None:
+    """Giá trị đứng cạnh label (vd 'Ngành nghề kinh doanh' → 'Lập trình...')."""
+    import re as _re
+    node = soup.find(string=_re.compile(label_re, _re.I))
+    if not node:
+        return None
+    p = node.find_parent(["div", "span", "li", "dt"])
+    if p is None:
+        return None
+    sib = p.find_next_sibling()
+    if sib is None:
+        return None
+    txt = re.sub(r"\s+", " ", sib.get_text(" ", strip=True))
+    return txt[:max_len] if txt else None
+
+
+def _meta_description(soup: BeautifulSoup) -> str | None:
+    m = (soup.find("meta", attrs={"property": "og:description"})
+         or soup.find("meta", attrs={"name": "description"}))
+    if m and m.get("content"):
+        return re.sub(r"\s+", " ", m["content"]).strip()[:1500]
+    return None
+
+
+def _detail_topcv(html: str) -> dict:
+    """Trang công ty topcv: quy mô, tên thật, ngành nghề, mô tả."""
     soup = BeautifulSoup(html, "html.parser")
     name = None
     h1 = soup.find("h1")
@@ -350,83 +382,142 @@ def _enrich_topcv(html: str) -> tuple[str | None, str | None]:
             if raw and re.search(r"\d", raw):
                 size = raw
                 break
-    return size, name
+    return {
+        "size": size,
+        "name": name,
+        "industry": _label_sibling(soup, r"Ngành nghề"),
+        "description": _meta_description(soup),
+        "jobs": [],
+    }
 
 
-def _enrich_itviec(html: str) -> tuple[str | None, str | None]:
+def _detail_itviec(html: str) -> dict:
+    """Trang công ty itviec (UI EN): Company overview / General information /
+    'N job openings' chứa link việc đang tuyển (?lab_feature=employer_job)."""
     soup = BeautifulSoup(html, "html.parser")
-    name = None
+    name = size = industry = description = None
     h1 = soup.find("h1")
     if h1:
         name = re.sub(r"\s+", " ", h1.get_text(" ", strip=True))
-    size = None
-    for node in soup.find_all(string=re.compile(r"Company size", re.I)):
-        sib = node.parent.find_next_sibling("div") if node.parent else None
-        if sib:
-            raw = re.sub(r"\s+", " ", sib.get_text(" ", strip=True))
-            if raw and re.search(r"\d", raw):
-                size = raw
-                break
-    return size, name
+    # General information là các cặp label/value — regex trên full text để
+    # không phụ thuộc nesting DOM (section/div đổi cấu trúc vẫn bắt được)
+    txt = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
+    m = re.search(r"Company industry\s+(.{3,120}?)(?:Company size|Country|Working days|$)", txt)
+    if m:
+        industry = m.group(1).strip()
+    m = re.search(r"Company size\s+([\d\+\- ]+employees)", txt, re.I)
+    if m:
+        size = m.group(1).strip()
+    ov = soup.find(string=re.compile(r"Company overview", re.I))
+    if ov is not None:
+        sec = ov.find_parent(["section", "div"])
+        if sec is not None:
+            description = re.sub(r"\s+", " ", sec.get_text(" ", strip=True))
+            description = description.replace("Company overview", "", 1).strip()[:1500] or None
+    jobs: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for a in soup.select("a[href*='lab_feature=employer_job']"):
+        slug_m = re.match(r"^/it-jobs/([^?\"']+)", a.get("href", ""))
+        title = a.get_text(" ", strip=True)
+        if not slug_m or not title or slug_m.group(1) in seen:
+            continue
+        seen.add(slug_m.group(1))
+        jobs.append((title, f"https://itviec.com/it-jobs/{slug_m.group(1)}"))
+    return {"size": size, "name": name, "industry": industry,
+            "description": description, "jobs": jobs}
 
 
-def _enrich_topdev(html: str) -> tuple[str | None, str | None]:
+def _detail_topdev(html: str) -> dict:
+    """Trang công ty topdev (RSC/SSR): company_size + display_name; industry/
+    description nếu RSC có."""
     m = re.search(r'"company_size\\?":\\?"([^"\\]*)', html)
     n = re.search(r'"display_name\\?":\\?"((?:[^"\\]|\\.)+)', html)
     emp = re.search(r'"num_employees\\?":\\?"([^"\\]*)', html)
+    ind = re.search(r'"industry(?:_name)?\\?":\\?"((?:[^"\\]{2,80}))', html)
     size = m.group(1).strip() if m else None
-    name = n.group(1).strip() if n else None
     if emp and size:
         size = f"{size} ({emp.group(1)} NV)"
-    return (size or None), name
+    desc = None
+    d = re.search(r'"(?:about|description)\\?":\\?"((?:[^"\\]|\\.){20,1200})', html)
+    if d:
+        desc = re.sub(r"\s+", " ", d.group(1))[:1500]
+    return {"size": size or None, "name": n.group(1).strip() if n else None,
+            "industry": ind.group(1).strip() if ind else None,
+            "description": desc, "jobs": []}
 
 
-_ENRICHERS = {"topcv": _enrich_topcv, "itviec": _enrich_itviec,
-              "topdev": _enrich_topdev}
+_ENRICHERS = {"topcv": _detail_topcv, "itviec": _detail_itviec,
+              "topdev": _detail_topdev}
 
 
 def enrich_missing(conn: sqlite3.Connection, *, budget: int | None = None) -> dict:
-    """Fetch trang detail cho các công ty chưa có quy mô — ưu tiên đang tuyển.
-    Chạy hết ngân sách là dừng (lịch sự với nguồn, lượt sau nối tiếp).
+    """Fetch trang detail cho các công ty chưa có thông tin — ưu tiên đang
+    tuyển. MỘT lần fetch lấy: quy mô + tên thật + ngành nghề + mô tả, với
+    itviec còn kèm DANH SÁCH JOB ĐANG TUYỂN (ingest vào bảng jobs, dedup
+    tự nhiên theo source+source_id).
 
-    Chính sách retry: công ty đã fetch mà trang KHÔNG có quy mô → chờ 14 ngày
-    trước khi thử lại; lỗi mạng (không fetch được) → KHÔNG đánh dấu, lượt sau
-    retry ngay."""
+    Chính sách retry: đã fetch mà trang không có thông tin → chờ 14 ngày;
+    lỗi mạng → KHÔNG đánh dấu, lượt sau retry ngay."""
     budget = budget if budget is not None else config.COMPANY_ENRICH_BUDGET
     rows = conn.execute(
         """SELECT source, slug, name, detail_url FROM company_directory
-           WHERE size_raw IS NULL AND detail_url IS NOT NULL
+           WHERE detail_url IS NOT NULL
+             AND (size_raw IS NULL OR industry IS NULL OR description IS NULL)
              AND (enriched_at IS NULL
                   OR julianday(enriched_at) < julianday('now', '-14 day'))
            ORDER BY is_hiring DESC, last_seen_at ASC LIMIT ?""", (budget,)
     ).fetchall()
-    done = errors = 0
+    done = errors = jobs_ingested = 0
     for r in rows:
         html = _fetch(r["detail_url"])
         if not html:
             errors += 1  # lỗi mạng → không đánh dấu, lượt sau retry
             continue
         fn = _ENRICHERS.get(r["source"])
-        size, name = fn(html) if fn else (None, None)
+        detail = fn(html) if fn else {}
+        size = detail.get("size")
         if size:
             lo, hi = parse_size_range(size)
-            bucket = ("1000+" if (size and "+" in size) else bucket_for(lo, hi))
+            bucket = ("1000+" if "+" in size else bucket_for(lo, hi))
             conn.execute(
                 """UPDATE company_directory SET size_raw=?, size_min=?, size_max=?,
                      bucket=?, enriched_at=? WHERE source=? AND slug=?""",
                 (size, lo, hi, bucket, _now(), r["source"], r["slug"]))
             done += 1
         else:
-            # không thấy quy mô — đánh dấu đã thử để không lặp vô hạn
             conn.execute(
                 "UPDATE company_directory SET enriched_at=? WHERE source=? AND slug=?",
                 (_now(), r["source"], r["slug"]))
+        # Ngành nghề + mô tả: trang không có → ghi '' (đã kiểm tra, khỏi quay lại)
+        conn.execute(
+            "UPDATE company_directory SET industry=?, description=?"
+            " WHERE source=? AND slug=?",
+            (detail.get("industry") or "", detail.get("description") or "",
+             r["source"], r["slug"]))
+        name = detail.get("name")
         if name and name != r["name"]:
-            # cập nhật tên chính xác (có dấu) khi nguồn là topcv (slug không dấu)
             conn.execute(
                 "UPDATE company_directory SET name=?, name_exact=1 WHERE source=? AND slug=? AND name_exact=0",
                 (name, r["source"], r["slug"]))
+        # itviec: ingest job đang tuyển từ chính trang công ty (bắt thêm job
+        # nằm ngoài 3 trang đầu của listing search)
+        for title, url in detail.get("jobs") or []:
+            job = {
+                "source": "itviec",
+                "source_id": url.rsplit("/", 1)[-1],
+                "title": title,
+                "company": r["name"],
+                "company_url": r["detail_url"],
+                "url": url,
+                "city": "Hồ Chí Minh",
+                "is_it": 1,
+                "level": normalize.parse_level(title),
+                "tags": "[]", "skills": "[]", "category": "",
+            }
+            relevance.annotate(job)
+            store.upsert_job(conn, job)
+            jobs_ingested += 1
         conn.commit()
         time.sleep(_DETAIL_DELAY)
     return {"budget": budget, "attempted": len(rows), "enriched": done,
-            "fetch_errors": errors}
+            "fetch_errors": errors, "jobs_ingested": jobs_ingested}

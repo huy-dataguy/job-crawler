@@ -72,6 +72,7 @@ export type Filters = {
   company_size: string;
   relevance_min: number;
   mark: MarkState;
+  company: string;
 };
 
 async function get<T>(url: string): Promise<T> {
@@ -90,9 +91,10 @@ export function filterParams(f: Filters): string {
   if (f.sort && f.sort !== "auto") p.set("sort", f.sort);
   if (f.relevance_min) p.set("relevance_min", String(f.relevance_min));
   if (f.mark && f.mark !== "all") p.set("mark", f.mark);
+  if ((f as any).company) p.set("company", (f as any).company);
   for (const [k, v] of Object.entries(f)) {
     if (["it_only", "since_hours", "salary_min", "sort", "show_hidden", "company_size",
-         "relevance_min", "mark"].includes(k)) continue;
+         "relevance_min", "mark", "company"].includes(k)) continue;
     if (v) p.set(k, String(v));
   }
   return p.toString();

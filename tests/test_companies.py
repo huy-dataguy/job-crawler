@@ -106,7 +106,12 @@ def test_enrich_missing_budget_and_priority(tmp_path: Path, monkeypatch):
 
     def fake_fetch(url):
         fetched.append(url)
-        return "<html><h1>Hiring Co</h1><div>Company size</div><div>1000+ employees</div></html>"
+        return ("<html><h1>Hiring Co</h1>"
+                "<div>General information Company industry IT Services "
+                "Company size 1000+ employees Country Vietnam</div>"
+                "<div>Company overview We build data platforms.</div>"
+                "<a href='/it-jobs/senior-data-engineer-hco-123?lab_feature=employer_job'>"
+                "Senior Data Engineer</a></html>")
 
     monkeypatch.setattr(cc, "_fetch", fake_fetch)
     monkeypatch.setattr(cc.time, "sleep", lambda s: None)
@@ -115,10 +120,56 @@ def test_enrich_missing_budget_and_priority(tmp_path: Path, monkeypatch):
     out = cc.enrich_missing(conn)  # budget 1 → chỉ công ty đang tuyển
     assert out["attempted"] == 1
     assert fetched == ["https://itviec.com/companies/hiring-co"]
-    row = conn.execute("SELECT size_raw, bucket FROM company_directory"
-                       " WHERE slug='hiring-co'").fetchone()
+    row = conn.execute("SELECT size_raw, bucket, industry, description"
+                       " FROM company_directory WHERE slug='hiring-co'").fetchone()
     assert row["size_raw"] == "1000+ employees"
     assert row["bucket"] == "1000+"
+    assert "IT Services" in row["industry"]
+    assert "data platforms" in row["description"]
+    # job đang tuyển từ trang công ty được ingest vào bảng jobs
+    assert out["jobs_ingested"] == 1
+    j = conn.execute("SELECT title, relevance, is_it FROM jobs"
+                     " WHERE source_id='senior-data-engineer-hco-123'").fetchone()
+    assert j["title"] == "Senior Data Engineer"
+    # chỉ có title (không category/tags như listing) → điểm thấp hơn nhưng vẫn
+    # nhận diện được nghề: DE title = 12*3 + senior +0 = 36
+    assert j["relevance"] == 36
+
+
+def test_detail_itviec_parses_industry_description_jobs():
+    html = """
+    <html><h1>FPT Software</h1>
+    <section><div>General information</div>
+      <div>Company type IT Service</div>
+      <div>Company industry IT Services and IT Consulting</div>
+      <div>Company size 1000+ employees</div>
+      <div>Country Vietnam</div></section>
+    <section><h2>Company overview</h2><p>The leading provider of software outsourcing.</p></section>
+    <h2>4 job openings</h2>
+    <a href="/it-jobs/data-engineer-fpt-0228?lab_feature=employer_job">Data Engineer</a>
+    <a href="/it-jobs/data-engineer-fpt-0228?lab_feature=employer_job">Data Engineer</a>
+    <a href="/it-jobs/python?click_source=Skill+tag">Python</a>
+    </html>"""
+    d = cc._detail_itviec(html)
+    assert d["name"] == "FPT Software"
+    assert d["industry"] == "IT Services and IT Consulting"
+    assert d["size"] == "1000+ employees"
+    assert "outsourcing" in d["description"]
+    assert d["jobs"] == [("Data Engineer", "https://itviec.com/it-jobs/data-engineer-fpt-0228")]
+
+
+def test_detail_topcv_parses_industry_and_meta_description():
+    html = """
+    <html><head><meta property="og:description" content="Công ty phần mềm NASANI làm về AI platform."></head>
+    <body><h1>CÔNG TY TNHH NASANI</h1>
+    <div><span>Ngành nghề kinh doanh</span><span>Lập trình máy tính khác</span></div>
+    <div><label>Quy mô</label><span>25-99 nhân viên</span></div>
+    </body></html>"""
+    d = cc._detail_topcv(html)
+    assert d["name"] == "CÔNG TY TNHH NASANI"
+    assert d["industry"] == "Lập trình máy tính khác"
+    assert d["size"] == "25-99 nhân viên"
+    assert "NASANI" in d["description"]
 
 
 def test_prune_keeps_directory(tmp_path: Path):
