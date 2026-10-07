@@ -125,7 +125,7 @@ export default function App() {
           <h2 className="font-bold text-lg">Thống kê thị trường <span className="font-mono text-sm text-faint">— theo bộ lọc hiện tại</span></h2>
           <div className="grid gap-5 md:grid-cols-2">
             <TrendChart trend={trend.data} />
-            <ExperienceChart stats={stats.data} onPick={(v) => { setView("inbox"); setF({ ...filters, exp: v }); }} />
+            <ExperienceChart stats={stats.data} onPick={(v) => { setView("inbox"); setF({ ...filters, exp: v === "4" || v === "5+" ? "5" : v }); }} />
             <CategoryChart stats={stats.data} />
             <SalaryChart jobs={jobsQ.data?.jobs ?? []} />
           </div>

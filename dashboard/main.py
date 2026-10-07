@@ -296,13 +296,15 @@ def _fts_query(q: str) -> str:
     return " AND ".join(f'"{t}"' for t in terms)
 
 
+# Filter năm kinh nghiệm theo góc nhìn NGƯỜI TÌM VIỆC: chọn số năm mình có,
+# hiện mọi job yêu cầu TỐI ĐA bao nhiêu năm (≤ N) — tức là việc mình đủ điều
+# kiện apply. exp_min NULL (nguồn không ghi) chỉ hiện khi "Tất cả".
 _EXP_BUCKETS = [
-    ("0", "Fresher / Không YC", "= 0"),
-    ("1", "1 năm", "= 1"),
-    ("2", "2 năm", "= 2"),
-    ("3", "3 năm", "= 3"),
-    ("4", "4 năm", "= 4"),
-    ("5+", "5+ năm", ">= 5"),
+    ("0", "Fresher / Không YC", "<= 0"),
+    ("1", "≤ 1 năm", "<= 1"),
+    ("2", "≤ 2 năm", "<= 2"),
+    ("3", "≤ 3 năm", "<= 3"),
+    ("5", "≤ 5 năm", "<= 5"),
 ]
 
 

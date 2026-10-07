@@ -63,6 +63,13 @@ export default function FilterBar({ filters, setF, meta, stats }: {
               onClick={() => setF({ ...filters, since_hours: o.v })}>{o.label}</Chip>
           ))}
         </Group>
+        <Group label="KN yêu cầu">
+          {[{ v: "", label: "Tất cả" }, { v: "0", label: "Fresher" }, { v: "1", label: "≤1 năm" },
+            { v: "2", label: "≤2 năm" }, { v: "3", label: "≤3 năm" }, { v: "5", label: "≤5 năm" }].map((o) => (
+            <Chip key={o.v || "all"} active={filters.exp === o.v}
+              onClick={() => setF({ ...filters, exp: o.v })}>{o.label}</Chip>
+          ))}
+        </Group>
         <Group label="Nguồn">
           {[{ v: "", label: "Tất cả" }, { v: "itviec", label: "ITviec" }, { v: "topcv", label: "TopCV" }, { v: "topdev", label: "TopDev" }].map((o) => (
             <Chip key={o.v || "all"} active={filters.source === o.v}
@@ -115,18 +122,6 @@ export default function FilterBar({ filters, setF, meta, stats }: {
                   <Chip key={c.name} active={filters.category === c.name}
                     onClick={() => setF({ ...filters, category: filters.category === c.name ? "" : c.name })}>
                     {c.name} <span className="font-mono text-[10px] opacity-60">{c.n}</span>
-                  </Chip>
-                ))}
-              </div>
-            </AdvGroup>
-          )}
-          {meta && (
-            <AdvGroup title="Năm kinh nghiệm">
-              <div className="flex flex-wrap gap-1.5">
-                {meta.experience.map((e) => (
-                  <Chip key={e.value} active={filters.exp === e.value}
-                    onClick={() => setF({ ...filters, exp: filters.exp === e.value ? "" : e.value })}>
-                    {e.name} <span className="font-mono text-[10px] opacity-60">{e.n}</span>
                   </Chip>
                 ))}
               </div>
@@ -196,7 +191,7 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
   if (filters.since_hours) pills.push({ label: `đăng ${SINCE_OPTIONS.find((o) => o.v === filters.since_hours)?.label}`, clear: () => setF({ ...filters, since_hours: 0 }) });
   if (filters.skill) pills.push({ label: `kỹ năng ${filters.skill}`, clear: () => setF({ ...filters, skill: "" }) });
   if (filters.category) pills.push({ label: `ngành ${filters.category}`, clear: () => setF({ ...filters, category: "" }) });
-  if (filters.exp) pills.push({ label: `${filters.exp} năm KN`, clear: () => setF({ ...filters, exp: "" }) });
+  if (filters.exp) pills.push({ label: `KN ≤ ${filters.exp} năm`, clear: () => setF({ ...filters, exp: "" }) });
   if (filters.level) pills.push({ label: `cấp ${filters.level}`, clear: () => setF({ ...filters, level: "" }) });
   if (filters.salary_min) pills.push({ label: `lương ≥ ${filters.salary_min}tr`, clear: () => setF({ ...filters, salary_min: 0 }) });
   if (filters.tag) pills.push({ label: `tag ${filters.tag}`, clear: () => setF({ ...filters, tag: "" }) });
