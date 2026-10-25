@@ -26,6 +26,8 @@ from . import config
 from . import normalize
 from . import relevance
 from . import store
+from .http import fetch, SourceError
+from . import raw
 from .company_enrich import bucket_for, parse_size_range
 
 _S = curl_requests.Session(impersonate="chrome124")
@@ -69,13 +71,8 @@ CREATE INDEX IF NOT EXISTS idx_company_dir_name ON company_directory (name);
 
 
 def ensure_directory_tables(conn: sqlite3.Connection) -> None:
-    conn.executescript(_SCHEMA)
-    # Migration nhẹ: thêm cột mô tả/lĩnh vực cho DB đã có company_directory
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(company_directory)")}
-    for col, ddl in [("industry", "TEXT"), ("description", "TEXT")]:
-        if col not in cols:
-            conn.execute(f"ALTER TABLE company_directory ADD COLUMN {col} {ddl}")
-    conn.commit()
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='company_directory'").fetchone():
+        raise RuntimeError("Run job-crawler migrate first")
 
 
 def _now() -> str:
@@ -161,14 +158,15 @@ def link_job_company(conn: sqlite3.Connection, *, source: str,
 
 def refresh_hiring_flags(conn: sqlite3.Connection, source: str,
                          seen_slugs: set[str]) -> None:
-    """Sau 1 lượt crawl job: công ty nguồn này không còn tin → is_hiring=0."""
+    """Derive hiring from retained, fresh open evidence; discovery may be partial."""
+    from .details import open_condition
     conn.execute(
         "UPDATE company_directory SET is_hiring=0 WHERE source=? AND is_hiring=1",
         (source,))
-    if seen_slugs:
-        conn.executemany(
-            "UPDATE company_directory SET is_hiring=1 WHERE source=? AND slug=?",
-            [(source, s) for s in seen_slugs])
+    conn.execute("UPDATE company_directory SET is_hiring=1 WHERE source=? AND EXISTS ("
+                 "SELECT 1 FROM jobs WHERE jobs.source=company_directory.source AND "
+                 "(jobs.company_url=company_directory.detail_url OR jobs.company=company_directory.name) AND "
+                 + open_condition() + ")", (source,))
 
 
 # ---------- harvest: topcv (sitemap — đầy đủ) ------------------------------
@@ -186,54 +184,47 @@ def _save_done_subs(conn: sqlite3.Connection, key: str, done: set[str]) -> None:
 
 
 def harvest_topcv(conn: sqlite3.Connection, *, max_pages: int | None = None) -> dict:
-    """Sitemap topcv có thể đứt giữa chừng (timeout) — sub đã xong được ghi
-    vào harvest_meta và bỏ qua ở lượt sau (resume); sub lỗi sẽ retry lần sau."""
-    cap = max_pages or config.TOPCV_SITEMAP_PAGES
-    r = _S.get(TOPCV_SITEMAP_INDEX, timeout=40,
-               headers={"Accept-Language": "vi,en;q=0.8"})
-    r.raise_for_status()
-    subs = re.findall(r"<loc>([^<]*companies[^<]*)</loc>", r.text)
-    done = _load_done_subs(conn, "topcv_subs_done")
-    updated = failed = 0
-    for i, sub in enumerate(subs[:cap], 1):
-        if sub in done:
-            continue
-        html = None
-        for attempt in (1, 2):  # timeout/throttle → thử lại 1 lần
-            try:
-                r2 = _S.get(sub, timeout=30,
-                            headers={"Accept-Language": "vi,en;q=0.8"})
-                if r2.status_code == 200:
-                    html = r2.text
-                    break
-            except Exception:
-                pass
-            time.sleep(2 * attempt)
-        if html is None:
-            failed += 1
-            continue
-        for loc in re.findall(r"<loc>([^<]+)/cong-ty/([^<]+)</loc>", html):
-            url, tail = loc[0] + "/cong-ty/" + loc[1], loc[1]
-            m = re.match(r"(.+)/(\d+)\.html?$", tail)
-            if not m:
-                continue
-            slug, cid = m.group(1), m.group(2)
-            before = conn.total_changes
-            upsert_directory(conn, source="topcv", slug=slug,
-                             name=_slug_to_name(slug),
-                             detail_url=url, company_id=cid)
-            if conn.total_changes > before:
+    from datetime import datetime, timedelta
+    cap = max_pages if max_pages is not None else config.TOPCV_SITEMAP_PAGES
+    html = fetch('topcv', TOPCV_SITEMAP_INDEX, session=_S, kind='sitemap', timeout=40)
+    subs = re.findall(r'<loc>([^<]*companies[^<]*)</loc>',html)
+    if not subs:
+        raise ValueError('TopCV company sitemap has no child sitemaps')
+    cycle = conn.execute("SELECT value FROM harvest_meta WHERE key='topcv_cycle_at'").fetchone()
+    if not cycle or datetime.fromisoformat(cycle[0]) < datetime.now().astimezone()-timedelta(days=7):
+        done = set()
+        conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topcv_cycle_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(_now(),))
+    else:
+        done = _load_done_subs(conn,'topcv_subs_done')
+    pending = [u for u in subs if u not in done][:cap]
+    updated = failed = processed = 0
+    for sub in pending:
+        try:
+            page = fetch('topcv',sub,session=_S,kind='sitemap')
+            locs = re.findall(r'<loc>([^<]+/cong-ty/[^<]+)</loc>',page)
+            if not locs:
+                raise ValueError('Company sub-sitemap empty or changed')
+            for url in locs:
+                m = re.search(r'/cong-ty/(.+)/(\d+)\.html?$',url)
+                if not m:
+                    continue
+                slug,cid=m.groups()
+                upsert_directory(conn,source='topcv',slug=slug,name=_slug_to_name(slug),detail_url=url,company_id=cid)
                 updated += 1
-        done.add(sub)
-        if i % 20 == 0:
+            done.add(sub)
+            _save_done_subs(conn,'topcv_subs_done',done)
             conn.commit()
-            _save_done_subs(conn, "topcv_subs_done", done)
-        time.sleep(_SITEMAP_DELAY)
+            processed += 1
+        except SourceError as exc:
+            failed += 1
+            if exc.status in (403,429):
+                break
+        except Exception:
+            failed += 1
+        time.sleep(config.DELAY_BETWEEN_REQUESTS)
     conn.commit()
-    _save_done_subs(conn, "topcv_subs_done", done)
-    return {"source": "topcv", "pages": min(len(subs), cap),
-            "subs_done": len(done & set(subs[:cap])), "subs_failed": failed,
-            "rows_touched": updated}
+    return {'source':'topcv','pages':processed,'subs_total':len(subs),'subs_done':len(done & set(subs)),
+            'subs_remaining':len(set(subs)-done),'subs_failed':failed,'rows_touched':updated}
 
 
 # ---------- harvest: itviec (directory phân trang) -------------------------
@@ -260,87 +251,86 @@ def parse_itviec_directory(html: str) -> list[tuple[str, str]]:
 
 
 def harvest_itviec(conn: sqlite3.Connection, *, max_pages: int | None = None) -> dict:
-    cap = max_pages or config.ITVIEC_COMPANY_PAGES
-    seen: set[str] = set()
-    pages = 0
-    for page in range(1, cap + 1):
-        url = ITVIEC_COMPANIES_URL + (f"?page={page}" if page > 1 else "")
-        r = _S.get(url, timeout=30, headers={"Accept-Language": "vi,en;q=0.8"})
-        r.raise_for_status()
-        found = parse_itviec_directory(r.text)
-        fresh = [(n, s) for n, s in found if s not in seen]
-        if not fresh:
-            break
-        pages += 1
-        for name, slug in fresh:
-            seen.add(slug)
-            upsert_directory(conn, source="itviec", slug=slug, name=name,
-                             detail_url=f"https://itviec.com/companies/{slug}",
-                             name_exact=True)
-        conn.commit()
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
-    return {"source": "itviec", "pages": pages, "companies": len(seen)}
+    # robots.txt advertises this sitemap index; the directory landing page now
+    # repeats featured companies and cannot provide exhaustive pagination.
+    html = fetch('itviec','https://itviec.com/twinnings_companies_en.xml',session=_S,kind='sitemap')
+    urls = re.findall(r'<loc>(https://itviec.com/companies/[^<]+)</loc>',html)
+    if not urls:
+        raise ValueError('ITviec company sitemap empty or changed')
+    seen = set()
+    for url in urls:
+        m = re.match(r'https://itviec.com/companies/([^/?#]+)$',url)
+        if not m or m.group(1)=='review-company':
+            continue
+        slug=m.group(1)
+        seen.add(slug)
+        upsert_directory(conn,source='itviec',slug=slug,name=_slug_to_name(slug),detail_url=url)
+    conn.commit()
+    return {'source':'itviec','pages':1,'companies':len(seen),'coverage':'public company sitemap'}
 
 
 # ---------- harvest: topdev (trang đầu + tích lũy job) ---------------------
 
+def parse_topdev_directory(html: str) -> dict[str, tuple[str,bool]]:
+    soup=BeautifulSoup(html,'html.parser')
+    pairs={}
+    for card in soup.select('div.bg-card'):
+        a=card.select_one('a[href*="/companies/"]')
+        if not a:continue
+        m=re.search(r'/companies/([a-z0-9-]+-\d+)',a.get('href',''))
+        if not m:continue
+        slug=m.group(1)
+        heading=card.select_one('span.font-semibold') or card.find(['h2','h3','h4'])
+        name=heading.get_text(' ',strip=True) if heading else _slug_to_name(slug)
+        pairs[slug]=(name,heading is not None)
+    return pairs
+
+
 def harvest_topdev(conn: sqlite3.Connection) -> dict:
-    """TopDev không có sitemap dùng được (500) — lấy từ: (1) trang /companies
-    đầu tiên, (2) RSC của trang tìm việc (mỗi job card chứa company object với
-    display_name + detail_url)."""
-    r = _S.get(TOPDEV_COMPANIES_URL, timeout=40,
-               headers={"Accept-Language": "vi,en;q=0.8", "RSC": "1"})
-    r.raise_for_status()
-    html = r.text
-    pairs: dict[str, tuple[str, str]] = {}
-    for m in re.finditer(r"/companies/([a-z0-9-]+-\d+)", html):
-        slug = m.group(1)
-        if slug in pairs:
-            continue
-        chunk = html[m.start():m.start() + 3000]
-        nm = re.search(r'"display_name\\?":\\?"((?:[^"\\]|\\.)+)', chunk)
-        pairs[slug] = (nm.group(1) if nm else _slug_to_name(slug),
-                       f"https://topdev.vn/companies/{slug}")
-    n_dir = len(pairs)
-    # (2) RSC các trang tìm việc HCM — công ty đang tuyển (chất lượng cao nhất)
-    try:
-        for page in range(1, 6):  # 5 trang đầu ≈ 75 tin mới nhất
-            url = "https://topdev.vn/jobs/search?region_ids=79" + (
-                f"&page={page}" if page > 1 else "")
-            r2 = _S.get(url, timeout=40,
-                        headers={"Accept-Language": "vi,en;q=0.8"})
-            if r2.status_code != 200:
-                break
-            for m in re.finditer(r"/companies/([a-z0-9-]+-\d+)", r2.text):
-                slug = m.group(1)
-                if slug in pairs:
-                    continue
-                chunk = r2.text[m.start():m.start() + 3000]
-                nm = re.search(r'"display_name\\?":\\?"((?:[^"\\]|\\.)+)', chunk)
-                pairs[slug] = (nm.group(1) if nm else _slug_to_name(slug),
-                               f"https://topdev.vn/companies/{slug}")
-            time.sleep(config.DELAY_BETWEEN_REQUESTS)
-    except Exception:
-        pass
-    for slug, (name, url) in pairs.items():
-        upsert_directory(conn, source="topdev", slug=slug, name=name,
-                         detail_url=url, name_exact=True)
+    import os
+    from datetime import datetime,timedelta
+    cap=int(os.environ.get('JC_TOPDEV_COMPANY_PAGES','10'))
+    row=conn.execute("SELECT value FROM harvest_meta WHERE key='topdev_next_page'").fetchone()
+    page=int(row[0]) if row else 1
+    cycle=conn.execute("SELECT value FROM harvest_meta WHERE key='topdev_cycle_done_at'").fetchone()
+    if page==1 and cycle and datetime.fromisoformat(cycle[0])>datetime.now().astimezone()-timedelta(days=7):
+        return {'source':'topdev','pages':0,'companies':0,'next_page':1,'coverage':'cycle complete; refresh weekly'}
+    previous=conn.execute("SELECT value FROM harvest_meta WHERE key='topdev_previous_slugs'").fetchone()
+    previous=set(json.loads(previous[0])) if previous else set()
+    touched=pages=0
+    for _ in range(cap):
+        url=TOPDEV_COMPANIES_URL+(f'?page={page}' if page>1 else '')
+        html=fetch('topdev',url,session=_S,kind='directory')
+        pairs=parse_topdev_directory(html)
+        if not pairs:
+            raise ValueError(f'TopDev company page {page} empty or changed')
+        if set(pairs)==previous:
+            page=1
+            conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_cycle_done_at',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(_now(),))
+            break
+        for slug,(name,exact) in pairs.items():
+            # Native page 2 currently links to saramin.vn; retain the source's
+            # topdev.vn canonical profile path so one profile has one identity.
+            upsert_directory(conn,source='topdev',slug=slug,name=name,
+                             detail_url=f'https://topdev.vn/companies/{slug}',name_exact=exact)
+            touched+=1
+        pages+=1;page+=1;previous=set(pairs)
+        conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_next_page',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(str(page),))
+        conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_previous_slugs',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(sorted(previous)),))
+        conn.commit()
+        time.sleep(config.DELAY_BETWEEN_REQUESTS)
+    conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_next_page',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(str(page),))
     conn.commit()
-    return {"source": "topdev", "companies": len(pairs),
-            "from_directory": n_dir,
-            "note": "sitemap 500 phía topdev — directory trang 1 + RSC jobs"}
+    return {'source':'topdev','pages':pages,'companies':touched,'next_page':page,
+            'coverage':'public paginated directory + accumulated job profiles'}
 
 
 # ---------- enrich quy mô (ngân sách mỗi run) ------------------------------
 
-def _fetch(url: str) -> str | None:
-    try:
-        r = _S.get(url, timeout=30, headers={"Accept-Language": "vi,en;q=0.8"})
-        if r.status_code != 200:
-            return None
-        return r.text
-    except Exception:
-        return None
+def _fetch(url: str) -> str:
+    from urllib.parse import urlparse
+    source = 'topcv' if 'topcv' in (urlparse(url).hostname or '') else ('topdev' if 'topdev' in url else 'itviec')
+    return fetch(source,url,session=_S,kind='company')
 
 
 def _label_sibling(soup: BeautifulSoup, label_re: str, max_len: int = 300) -> str | None:
@@ -428,96 +418,112 @@ def _detail_itviec(html: str) -> dict:
 
 
 def _detail_topdev(html: str) -> dict:
-    """Trang công ty topdev (RSC/SSR): company_size + display_name; industry/
-    description nếu RSC có."""
-    m = re.search(r'"company_size\\?":\\?"([^"\\]*)', html)
-    n = re.search(r'"display_name\\?":\\?"((?:[^"\\]|\\.)+)', html)
-    emp = re.search(r'"num_employees\\?":\\?"([^"\\]*)', html)
-    ind = re.search(r'"industry(?:_name)?\\?":\\?"((?:[^"\\]{2,80}))', html)
-    size = m.group(1).strip() if m else None
-    if emp and size:
-        size = f"{size} ({emp.group(1)} NV)"
-    desc = None
-    d = re.search(r'"(?:about|description)\\?":\\?"((?:[^"\\]|\\.){20,1200})', html)
-    if d:
-        desc = re.sub(r"\s+", " ", d.group(1))[:1500]
-    return {"size": size or None, "name": n.group(1).strip() if n else None,
-            "industry": ind.group(1).strip() if ind else None,
-            "description": desc, "jobs": []}
+    # Decode Flight string envelopes before matching JSON strings. Matching escaped
+    # HTML directly previously swallowed the remaining payload into company names.
+    soup=BeautifulSoup(html,'html.parser')
+    decoded=[]
+    for script in soup.select('script'):
+        body=script.get_text()
+        for match in re.finditer(r'self\.__next_f\.push\((\[.*?\])\)',body,re.S):
+            try:
+                envelope=json.loads(match.group(1))
+                if len(envelope)>1 and isinstance(envelope[1],str):decoded.append(envelope[1])
+            except (ValueError,TypeError):pass
+    payload='\n'.join(decoded)
+    def value(field):
+        match=re.search(r'"'+field+r'"\s*:\s*("(?:[^"\\]|\\.)*")',payload)
+        if match:
+            try:return json.loads(match.group(1))
+            except ValueError:return None
+        return None
+    meta=soup.select_one('meta[property="og:title"]')
+    name=None
+    if meta:
+        match=re.match(r'IT Jobs at (.+?)(?: \[|$)',meta.get('content',''))
+        if match:name=match.group(1).strip()
+    return {'size':value('company_size'),'name':name or value('display_name'),
+            'industry':value('industry_name'),'description':None,'jobs':[]}
 
 
 _ENRICHERS = {"topcv": _detail_topcv, "itviec": _detail_itviec,
               "topdev": _detail_topdev}
 
 
-def enrich_missing(conn: sqlite3.Connection, *, budget: int | None = None) -> dict:
-    """Fetch trang detail cho các công ty chưa có thông tin — ưu tiên đang
-    tuyển. MỘT lần fetch lấy: quy mô + tên thật + ngành nghề + mô tả, với
-    itviec còn kèm DANH SÁCH JOB ĐANG TUYỂN (ingest vào bảng jobs, dedup
-    tự nhiên theo source+source_id).
+def classify_profiles(conn: sqlite3.Connection, *, source: str | None = None) -> None:
+    from .profiles import classify
+    rows = conn.execute("SELECT source,slug,name,industry,description,it_status,it_evidence FROM company_directory"
+                        + (" WHERE source=?" if source else ""), (source,) if source else ()).fetchall()
+    job_names = {(r[0], r[1]) for r in conn.execute("SELECT DISTINCT source,company FROM jobs WHERE is_it=1")}
+    changes = []
+    for row in rows:
+        status, evidence = classify(dict(row), has_it_jobs=(row["source"],row["name"]) in job_names)
+        if status != row["it_status"] or evidence != row["it_evidence"]:
+            changes.append((status,evidence,row["source"],row["slug"]))
+    conn.executemany("UPDATE company_directory SET it_status=?,it_evidence=? WHERE source=? AND slug=?", changes)
+    conn.commit()
 
-    Chính sách retry: đã fetch mà trang không có thông tin → chờ 14 ngày;
-    lỗi mạng → KHÔNG đánh dấu, lượt sau retry ngay."""
+
+def enrich_missing(conn: sqlite3.Connection, *, budget: int | None = None) -> dict:
+    from datetime import datetime, timedelta
+    from .profiles import parse, classify
     budget = budget if budget is not None else config.COMPANY_ENRICH_BUDGET
+    # Round-robin sources and reserve 1/5 of the queue for general employers.
     rows = conn.execute(
-        """SELECT source, slug, name, detail_url FROM company_directory
-           WHERE detail_url IS NOT NULL
-             AND (size_raw IS NULL OR industry IS NULL OR description IS NULL)
-             AND (enriched_at IS NULL
-                  OR julianday(enriched_at) < julianday('now', '-14 day'))
-           ORDER BY is_hiring DESC, last_seen_at ASC LIMIT ?""", (budget,)
-    ).fetchall()
+        """SELECT *, ROW_NUMBER() OVER (PARTITION BY source, (it_status='unknown')
+           ORDER BY is_hiring DESC, enriched_at IS NOT NULL, enriched_at, last_seen_at DESC) AS rank
+           FROM company_directory WHERE detail_url IS NOT NULL
+           AND (next_enrich_at IS NULL OR julianday(next_enrich_at)<=julianday('now'))
+           ORDER BY rank, (it_status='unknown'), source LIMIT ?""", (budget,)).fetchall()
     done = errors = jobs_ingested = 0
-    for r in rows:
-        html = _fetch(r["detail_url"])
-        if not html:
-            errors += 1  # lỗi mạng → không đánh dấu, lượt sau retry
+    blocked_sources = set()
+    for row in rows:
+        r = dict(row)
+        if r['source'] in blocked_sources:
             continue
-        fn = _ENRICHERS.get(r["source"])
-        detail = fn(html) if fn else {}
-        size = detail.get("size")
-        if size:
-            lo, hi = parse_size_range(size)
-            bucket = ("1000+" if "+" in size else bucket_for(lo, hi))
-            conn.execute(
-                """UPDATE company_directory SET size_raw=?, size_min=?, size_max=?,
-                     bucket=?, enriched_at=? WHERE source=? AND slug=?""",
-                (size, lo, hi, bucket, _now(), r["source"], r["slug"]))
+        try:
+            from urllib.parse import urlparse
+            from .details import HOSTS
+            if urlparse(r['detail_url']).hostname not in HOSTS[r['source']]:
+                raise ValueError('Company URL outside source hosts')
+            html = _fetch(r['detail_url'])
+            if not html:
+                raise ValueError('Company fetch failed')
+            base = _ENRICHERS[r['source']](html)
+            detail = parse(html, r['source'], base)
+            detail['source'] = r['source']
+            status, evidence = classify(detail, has_it_jobs=bool(r['is_hiring']))
+            lo, hi = parse_size_range(detail.get('size') or '')
+            fields = {k: detail.get(k) for k in ('industry','description','website','address',
+                      'company_type','country','working_days','overtime','tech_stack','benefits','logo_url','public_links')}
+            fields.update(size_raw=detail.get('size'), size_min=lo, size_max=hi,
+                          bucket=bucket_for(lo,hi) if lo is not None else None,
+                          it_status=status,it_evidence=evidence,
+                          enriched_at=_now(), enrichment_error=None,
+                          next_enrich_at=(datetime.now().astimezone()+timedelta(days=14)).isoformat(timespec='seconds'),
+                          raw_artifact=raw.preserve(r['source'],r['detail_url'],html,kind='company'))
+            # Keep useful existing fields if a source temporarily omits them.
+            fields = {k:v for k,v in fields.items() if v not in (None,'','[]') or k=='enrichment_error'}
+            conn.execute('UPDATE company_directory SET '+','.join(f'{k}=?' for k in fields)
+                         +' WHERE source=? AND slug=?',list(fields.values())+[r['source'],r['slug']])
+            if detail.get('name'):
+                conn.execute('UPDATE company_directory SET name=?,name_exact=1 WHERE source=? AND slug=?',
+                             (detail['name'],r['source'],r['slug']))
+            for title,url in detail.get('jobs') or []:
+                job = {'source':'itviec','source_id':url.rsplit('/',1)[-1],'title':title,
+                       'company':detail.get('name') or r['name'],'company_url':r['detail_url'],
+                       'url':url,'city':'','is_it':1,'level':normalize.parse_level(title),
+                       'tags':'[]','skills':'[]','category':''}
+                relevance.annotate(job)
+                store.upsert_job(conn,job)
+                jobs_ingested += 1
             done += 1
-        else:
-            conn.execute(
-                "UPDATE company_directory SET enriched_at=? WHERE source=? AND slug=?",
-                (_now(), r["source"], r["slug"]))
-        # Ngành nghề + mô tả: trang không có → ghi '' (đã kiểm tra, khỏi quay lại)
-        conn.execute(
-            "UPDATE company_directory SET industry=?, description=?"
-            " WHERE source=? AND slug=?",
-            (detail.get("industry") or "", detail.get("description") or "",
-             r["source"], r["slug"]))
-        name = detail.get("name")
-        if name and name != r["name"]:
-            conn.execute(
-                "UPDATE company_directory SET name=?, name_exact=1 WHERE source=? AND slug=? AND name_exact=0",
-                (name, r["source"], r["slug"]))
-        # itviec: ingest job đang tuyển từ chính trang công ty (bắt thêm job
-        # nằm ngoài 3 trang đầu của listing search)
-        for title, url in detail.get("jobs") or []:
-            job = {
-                "source": "itviec",
-                "source_id": url.rsplit("/", 1)[-1],
-                "title": title,
-                "company": r["name"],
-                "company_url": r["detail_url"],
-                "url": url,
-                "city": "Hồ Chí Minh",
-                "is_it": 1,
-                "level": normalize.parse_level(title),
-                "tags": "[]", "skills": "[]", "category": "",
-            }
-            relevance.annotate(job)
-            store.upsert_job(conn, job)
-            jobs_ingested += 1
+        except Exception as exc:
+            errors += 1
+            conn.execute('UPDATE company_directory SET enrichment_error=?,next_enrich_at=? WHERE source=? AND slug=?',
+                         (str(exc)[:300],(datetime.now().astimezone()+timedelta(hours=6)).isoformat(timespec='seconds'),
+                          r['source'],r['slug']))
+            if isinstance(exc,SourceError) and exc.status in (403,429):
+                blocked_sources.add(r['source'])
         conn.commit()
-        time.sleep(_DETAIL_DELAY)
-    return {"budget": budget, "attempted": len(rows), "enriched": done,
-            "fetch_errors": errors, "jobs_ingested": jobs_ingested}
+        time.sleep(config.DELAY_BETWEEN_REQUESTS)
+    return {'budget':budget,'attempted':done+errors,'enriched':done,'fetch_errors':errors,'jobs_ingested':jobs_ingested}

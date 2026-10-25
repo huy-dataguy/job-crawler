@@ -1,39 +1,29 @@
 #!/usr/bin/env bash
-# Cài đặt runner local: systemd user timer (crawl 15 phút/lượt) + dashboard nền.
-# Chạy 1 lần từ repo root:  bash scripts/local/install.sh
+# Relocatable, user-scoped services. Run after building frontend and migrating.
 set -euo pipefail
-
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-UNIT_DIR="$HOME/.config/systemd/user"
-mkdir -p "$UNIT_DIR"
-
-if [ ! -f "$REPO_DIR/.env" ]; then
-  cat > "$REPO_DIR/.env" <<'EOF'
-# Secret Telegram cho alert job mới — KHÔNG commit file này.
-# Lấy token từ @BotFather, chat_id từ getUpdates (xem README).
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHAT_ID=
-EOF
-  chmod 600 "$REPO_DIR/.env"
-  echo "Đã tạo $REPO_DIR/.env (placeholder) — điền token/chat_id rồi chạy lại."
-fi
-
-chmod +x "$REPO_DIR/scripts/local/run_crawler.sh" "$REPO_DIR/scripts/local/run_deep.sh"
-
-for unit in job-crawler-crawl.service job-crawler-crawl.timer \
-            job-crawler-dashboard.service job-crawler-deep.service job-crawler-deep.timer; do
-  # Unit reference đường dẫn tuyệt đối của repo này → copy (không symlink)
-  # để systemd không theo dõi file trong cây git.
-  cp "$REPO_DIR/scripts/local/$unit" "$UNIT_DIR/$unit"
-done
-
-# Đường dẫn repo nằm trong unit đã copy; nếu đổi chỗ repo thì chạy lại install.
+export JC_INSTALL_REPO="$REPO_DIR"
+"$REPO_DIR/.venv/bin/python" - <<'PY'
+import os
+from pathlib import Path
+root=Path(os.environ['JC_INSTALL_REPO'])
+units=Path.home()/'.config/systemd/user'
+units.mkdir(parents=True,exist_ok=True)
+assert (root/'frontend/dist/index.html').is_file(),'Build frontend first: cd frontend && npm run build'
+from job_crawler import config,store
+store.connect(config.DB_PATH).close()
+value=str(root).replace('%','%%').replace('\\','\\\\').replace('"','\\"')
+for path in (root/'scripts/local').iterdir():
+    if path.suffix in ('.service','.timer'):
+        (units/path.name).write_text(path.read_text().replace('@REPO_DIR@',value))
+for name in ('run_crawler.sh','run_companies.sh','run_deep.sh'):
+    path=root/'scripts/local'/name
+    path.chmod(path.stat().st_mode | 0o111)
+PY
+systemd-analyze --user verify "$HOME/.config/systemd/user/job-crawler-dashboard.service" "$HOME/.config/systemd/user/job-crawler-crawl.service" "$HOME/.config/systemd/user/job-crawler-companies.service" "$HOME/.config/systemd/user/job-crawler-deep.service"
 systemctl --user daemon-reload
-systemctl --user enable --now job-crawler-crawl.timer
-systemctl --user enable --now job-crawler-dashboard.service
-systemctl --user enable --now job-crawler-deep.timer
-
-echo "OK. Kiểm tra:"
-echo "  systemctl --user list-timers | grep job-crawler"
-echo "  curl -s localhost:8130/api/stats"
-echo "  journalctl --user -u job-crawler-crawl.service -n 20 --no-pager"
+systemctl --user reset-failed job-crawler-crawl.service job-crawler-deep.service job-crawler-dashboard.service || true
+systemctl --user enable --now job-crawler-crawl.timer job-crawler-companies.timer job-crawler-deep.timer
+systemctl --user restart job-crawler-dashboard.service
+systemctl --user enable job-crawler-dashboard.service
+systemctl --user list-timers 'job-crawler-*' --no-pager

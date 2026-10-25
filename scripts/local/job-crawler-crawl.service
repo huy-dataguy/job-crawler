@@ -1,11 +1,13 @@
 [Unit]
-Description=Job Crawler — crawl 1 lượt (itviec + topcv + topdev) rồi thoát
-# Chạy lặp lại bởi job-crawler-crawl.timer
+Description=Vietnam jobs discovery and open-state verification
+After=network-online.target
 
 [Service]
 Type=oneshot
-# Secret Telegram nạp từ .env trong repo (xem scripts/local/run_crawler.sh)
-ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/job-crawler/scripts/local/run_crawler.sh"
-# Không crawl chồng lượt cũ nếu mạng chậm hơn 15 phút
-TimeoutStartSec=12min
+WorkingDirectory=@REPO_DIR@
+ExecStart="@REPO_DIR@/scripts/local/run_crawler.sh"
+TimeoutStartSec=20min
 Nice=10
+Restart=on-failure
+RestartSec=120
+RestartPreventExitStatus=1 2

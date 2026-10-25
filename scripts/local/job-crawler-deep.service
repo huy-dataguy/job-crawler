@@ -1,9 +1,13 @@
 [Unit]
-Description=Job Crawler — deep crawl (nhiều trang) + harvest thư mục công ty
-After=job-crawler-crawl.service
+Description=Daily wider Vietnam job discovery
+After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart="/home/dataguy/Documents/01 - Projects/_Personal/job-crawler/scripts/local/run_deep.sh"
-TimeoutStartSec=45min
+WorkingDirectory=@REPO_DIR@
+ExecStart="@REPO_DIR@/scripts/local/run_deep.sh"
+TimeoutStartSec=40min
 Nice=15
+Restart=on-failure
+RestartSec=120
+RestartPreventExitStatus=1 2

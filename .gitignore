@@ -6,3 +6,6 @@ recon/
 .env
 nohup.out
 frontend/dist/
+.vercel/
+.vercel
+frontend/node_modules/

@@ -1,8 +1,4 @@
-"""Pipeline: crawl các nguồn → làm sạch → chấm điểm liên quan → upsert SQLite
-→ prune data cũ → ghi run manifest. DB chỉ giữ job IT mới + sạch, không raw.
-
-Ngoài ra: mỗi job gắn công ty vào company_directory (tên chính xác + đang
-tuyển), và lệnh `companies` harvest thư mục công ty đầy đủ từ 3 nguồn."""
+"""Source discovery, detail verification, independent company enrichment and run manifests."""
 from __future__ import annotations
 
 import json
@@ -10,6 +6,7 @@ import sqlite3
 
 from . import companies_crawl, config, itviec, relevance, store, topcv, topdev
 from .notifier import TelegramError, TelegramNotifier
+from . import details
 
 SOURCES = {"itviec": itviec, "topcv": topcv, "topdev": topdev}
 
@@ -65,14 +62,16 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
             # Commit per canonical job.  If a later Telegram call fails, jobs
             # already acknowledged are durable and will not be sent twice.
             conn.commit()
+        conn.commit()
+        detail_result = details.verify_source(conn, name)
+        companies_crawl.classify_profiles(conn, source=name)
         companies_crawl.refresh_hiring_flags(conn, name, seen_slugs)
         conn.commit()
-        pruned = store.prune(conn, keep_days=config.KEEP_DAYS,
-                             stale_days=config.STALE_DAYS)
-        store.finish_run(conn, run_id, status="ok", pages=pages, found=found,
+        pruned = 0  # retain history and marks; age/status are serving filters
+        store.finish_run(conn, run_id, status="partial" if detail_result["errors"] else "ok", pages=pages, found=found,
                          new_count=new, updated_count=upd,
                          note=f"telegram_notified={notified} "
-                              f"skipped_non_it={skipped_non_it} pruned={pruned}")
+                              f"skipped_non_it={skipped_non_it} details={json.dumps(detail_result)}")
         return {
             "source": name,
             "found": found,
@@ -82,12 +81,13 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
             "notified": notified,
             "skipped_non_it": skipped_non_it,
             "pruned": pruned,
+            "details": detail_result,
         }
-    except Exception as e:
+    except BaseException as e:
         # In particular, remove the current uncommitted new job when Telegram
         # fails so it remains new and retryable on the next crawl.
         conn.rollback()
-        store.finish_run(conn, run_id, status="error", pages=pages, found=found,
+        store.finish_run(conn, run_id, status="interrupted" if isinstance(e, (SystemExit, KeyboardInterrupt)) else "error", pages=pages, found=found,
                          new_count=new, updated_count=upd, note=repr(e)[:300])
         raise
     finally:
@@ -95,7 +95,15 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
 
 
 def run_all() -> list[dict]:
-    return [run_source(s) for s in ("itviec", "topcv", "topdev")]
+    results = []
+    for source in ("itviec", "topcv", "topdev"):
+        try:
+            result = run_source(source)
+        except Exception as exc:
+            result = {"source": source, "error": str(exc)[:300]}
+        results.append(result)
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+    return results
 
 
 def run_companies(*, harvest: bool = True) -> dict:
@@ -115,26 +123,24 @@ def run_companies(*, harvest: bool = True) -> dict:
                 except Exception as e:
                     results[src] = {"error": repr(e)[:200]}
         try:
-            # Row enrich bằng parser cũ (chỉ size) → cho fetch lại 1 lần để
-            # bọc nốt ngành nghề/mô tả/job itviec; sentinel '' chống lặp
-            conn.execute(
-                """UPDATE company_directory SET enriched_at=NULL
-                   WHERE detail_url IS NOT NULL AND industry IS NULL
-                     AND enriched_at IS NOT NULL""")
-            conn.commit()
             results["enrich"] = companies_crawl.enrich_missing(conn)
         except Exception as e:
             results["enrich"] = {"error": repr(e)[:200]}
         found = sum(
             r.get("companies", r.get("rows_touched", 0))
             for r in results.values() if isinstance(r, dict))
-        store.finish_run(conn, run_id, status="ok", pages=0, found=found,
+        companies_crawl.classify_profiles(conn)
+        for source in SOURCES:
+            companies_crawl.refresh_hiring_flags(conn, source, set())
+        partial = any(isinstance(r, dict) and (r.get("error") or r.get("fetch_errors") or r.get("subs_failed"))
+                      for r in results.values())
+        store.finish_run(conn, run_id, status="partial" if partial else "ok", pages=0, found=found,
                          new_count=0, updated_count=0,
                          note=json.dumps(results, ensure_ascii=False)[:280])
         return results
-    except Exception as e:
+    except BaseException as e:
         conn.rollback()
-        store.finish_run(conn, run_id, status="error", pages=0, found=0,
+        store.finish_run(conn, run_id, status="interrupted" if isinstance(e, (SystemExit, KeyboardInterrupt)) else "error", pages=0, found=0,
                          new_count=0, updated_count=0, note=repr(e)[:300])
         raise
     finally:

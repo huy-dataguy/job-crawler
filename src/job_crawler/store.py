@@ -1,6 +1,6 @@
 """SQLite store — bản ghi job đã làm sạch, dedup theo (source, source_id).
 
-Không lưu raw HTML (ít dung lượng). Idempotent: crawl lại upsert last_seen.
+Raw evidence is stored separately; canonical upserts retain rich detail and user marks.
 """
 from __future__ import annotations
 
@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS job_marks (
   viewed    INTEGER NOT NULL DEFAULT 0,
   hidden    INTEGER NOT NULL DEFAULT 0,
   applied   INTEGER NOT NULL DEFAULT 0,
+  starred   INTEGER NOT NULL DEFAULT 0,
   marked_at TEXT NOT NULL,
   PRIMARY KEY (source, source_id)
 );
@@ -78,7 +79,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
 """
 
 
-def connect(db_path: Path) -> sqlite3.Connection:
+def _initialize_schema(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path, timeout=30)
     conn.row_factory = sqlite3.Row
@@ -124,10 +125,12 @@ def connect(db_path: Path) -> sqlite3.Connection:
                 (score, matched, r["rowid"]),
             )
     conn.executescript(_SCHEMA_MARKS)
-    # Migration job_marks: thêm cột applied (dashboard dùng, store giữ schema đồng bộ)
+    # Migration job_marks: thêm cột dashboard dùng (store giữ schema đồng bộ)
     mcols = {r[1] for r in conn.execute("PRAGMA table_info(job_marks)")}
     if "applied" not in mcols:
         conn.execute("ALTER TABLE job_marks ADD COLUMN applied INTEGER NOT NULL DEFAULT 0")
+    if "starred" not in mcols:
+        conn.execute("ALTER TABLE job_marks ADD COLUMN starred INTEGER NOT NULL DEFAULT 0")
     conn.executescript(_SCHEMA_REST)
     # Backfill FTS standalone cho dữ liệu hiện có
     n_jobs = conn.execute("SELECT count(*) FROM jobs").fetchone()[0]
@@ -141,6 +144,19 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def connect(db_path: Path) -> sqlite3.Connection:
+    db_path = Path(db_path)
+    if not db_path.exists():
+        from .migrations import migrate
+        migrate(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
+    conn.row_factory = sqlite3.Row
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 2:
+        conn.close()
+        raise RuntimeError("Schema migration required: job-crawler migrate")
+    return conn
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -150,6 +166,7 @@ _JOB_COLS = [
     "experience", "exp_min", "category", "tags", "skills", "is_it",
     "level", "salary_min", "salary_max", "posted_text", "posted_at",
     "relevance", "matched",
+    "company_url", "work_mode",
 ]
 
 
@@ -180,26 +197,29 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> str:
         )
         _sync_fts(conn, int(cur.lastrowid), job)
         return "new"
+    # A sparse company/listing record must never erase richer verified detail.
+    updates = []
+    values = []
+    for col in _JOB_COLS:
+        if col in ("source", "source_id") or job.get(col) in (None, "", "[]"):
+            continue
+        if col == "posted_at":
+            updates.append("posted_at=CASE WHEN date_source='structured' THEN posted_at ELSE ? END")
+        else:
+            updates.append(f"{col}=?")
+        values.append(job[col])
     conn.execute(
-        """UPDATE jobs SET title=?, company=?, url=?, city=?, salary=?, experience=?,
-             exp_min=?, category=?, tags=?, posted_text=?, posted_at=?, last_seen_at=?,
-             relevance=?, matched=?,
-             seen_count=seen_count+1, is_active=1 WHERE source=? AND source_id=?""",
-        (
-            job.get("title"), job.get("company"), job.get("url"), job.get("city"),
-            job.get("salary"), job.get("experience"), job.get("exp_min"),
-            job.get("category"),
-            job.get("tags"), job.get("posted_text"), job.get("posted_at"),
-            ts,
-            job.get("relevance"), job.get("matched"),
-            job["source"], job["source_id"],
-        ),
-    )
-    _sync_fts(conn, int(cur[0]), job)
+        f"UPDATE jobs SET {', '.join(updates)}, last_seen_at=?, seen_count=seen_count+1"
+        " WHERE source=? AND source_id=?",
+        values + [ts, job["source"], job["source_id"]])
+    current = dict(conn.execute("SELECT * FROM jobs WHERE rowid=?", (cur[0],)).fetchone())
+    _sync_fts(conn, int(cur[0]), current)
     return "updated"
 
 
 def start_run(conn: sqlite3.Connection, source: str) -> int:
+    conn.execute("UPDATE crawl_runs SET finished_at=?,status='interrupted',note='previous process stopped before completion'"
+                 " WHERE source=? AND finished_at IS NULL", (now_iso(), source))
     cur = conn.execute(
         "INSERT INTO crawl_runs (source, started_at) VALUES (?, ?)",
         (source, now_iso()),

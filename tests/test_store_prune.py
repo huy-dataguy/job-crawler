@@ -68,14 +68,14 @@ def test_upsert_stores_relevance(tmp_path: Path):
     _mk(conn, "r1", posted_at=_iso(days=-1), last_seen_at=_iso(minutes=-1))
     row = conn.execute(
         "SELECT relevance, matched FROM jobs WHERE source_id='r1'").fetchone()
-    # upsert không truyền relevance → NULL; connect() backfill chấm điểm
+    # Store connections are read/transaction boundaries, with no hidden backfill.
     assert row["relevance"] is None or row["relevance"] >= 0
     conn.close()
-    conn2 = store.connect(tmp_path / "jobs.db")  # backfill chạy ở connect
+    conn2 = store.connect(tmp_path / "jobs.db")
     row2 = conn2.execute(
         "SELECT relevance, matched FROM jobs WHERE source_id='r1'").fetchone()
-    assert row2["relevance"] >= 50  # DE(26) + Python(20) + junior(10)
-    assert "Python" in row2["matched"]
+    assert row2["relevance"] is None
+    assert row2["matched"] is None
 
 
 def test_upsert_update_keeps_posted_at_iso_and_refreshes_last_seen(tmp_path: Path):

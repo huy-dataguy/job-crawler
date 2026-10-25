@@ -12,14 +12,11 @@ DATA_DIR = Path(os.environ.get("JC_DATA_DIR", Path(__file__).resolve().parents[2
 DB_PATH = Path(os.environ.get("JC_DB_PATH", DATA_DIR / "job_crawler.db"))
 
 BASE_URL = "https://itviec.com/"
-LISTING_URL = BASE_URL + "it-jobs/ho-chi-minh-hcm"
-TOPCV_URL = (
-    "https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-tai-ho-chi-minh-l2cr257"
-    "?type_keyword=1&disable_auto_detect_type_keyword=1&sba=1&category_family=r257&locations=l2&saturday_status=0"
-)
+LISTING_URL = os.environ.get("JC_ITVIEC_URL", BASE_URL + "it-jobs")
+TOPCV_URL = os.environ.get("JC_TOPCV_URL", "https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257")
 
-MAX_PAGES_ITVIEC = int(os.environ.get("JC_MAX_PAGES_ITVIEC", "3"))
-MAX_PAGES_TOPCV = int(os.environ.get("JC_MAX_PAGES_TOPCV", "3"))
+MAX_PAGES_ITVIEC = int(os.environ.get("JC_MAX_PAGES_ITVIEC", "10"))
+MAX_PAGES_TOPCV = int(os.environ.get("JC_MAX_PAGES_TOPCV", "5"))
 DELAY_BETWEEN_REQUESTS = float(os.environ.get("JC_DELAY", "2.0"))  # giây, lịch sự với nguồn
 CHROME_BIN = os.environ.get("JC_CHROME_BIN", "google-chrome")
 CHROME_FLUSH_SECONDS = os.environ.get(
@@ -34,7 +31,7 @@ _telegram_override = os.environ.get("JC_TELEGRAM_ENABLED")
 TELEGRAM_ENABLED = (
     _telegram_override.strip().lower() in {"1", "true", "yes", "on"}
     if _telegram_override is not None
-    else bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+    else False
 )
 TELEGRAM_TIMEOUT_SECONDS = float(os.environ.get("JC_TELEGRAM_TIMEOUT", "15"))
 TELEGRAM_MIN_INTERVAL_SECONDS = float(os.environ.get("JC_TELEGRAM_MIN_INTERVAL", "1.05"))
@@ -50,5 +47,8 @@ NOTIFY_MIN_RELEVANCE = int(os.environ.get("JC_NOTIFY_MIN_RELEVANCE", "40"))
 
 # --- Thư mục công ty (company_directory) ------------------------------------
 ITVIEC_COMPANY_PAGES = int(os.environ.get("JC_ITVIEC_COMPANY_PAGES", "120"))
-TOPCV_SITEMAP_PAGES = int(os.environ.get("JC_TOPCV_SITEMAP_PAGES", "300"))
-COMPANY_ENRICH_BUDGET = int(os.environ.get("JC_COMPANY_ENRICH_BUDGET", "300"))
+TOPCV_SITEMAP_PAGES = int(os.environ.get("JC_TOPCV_SITEMAP_PAGES", "10"))
+COMPANY_ENRICH_BUDGET = int(os.environ.get("JC_COMPANY_ENRICH_BUDGET", "90"))
+JOB_DETAIL_BUDGET = int(os.environ.get("JC_JOB_DETAIL_BUDGET", "60"))
+OPEN_CHECK_HOURS = int(os.environ.get("JC_OPEN_CHECK_HOURS", "24"))
+RECENT_DAYS = int(os.environ.get("JC_RECENT_DAYS", "14"))

@@ -1,0 +1,10 @@
+[Unit]
+Description=Sync job-crawler → Supabase mỗi 15 phút (sau nhịp crawl :00/:15/:30/:45)
+
+[Timer]
+OnCalendar=*:10/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

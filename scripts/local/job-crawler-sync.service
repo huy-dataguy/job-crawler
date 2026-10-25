@@ -1,0 +1,10 @@
+[Unit]
+Description=Job crawler — sync SQLite local lên Supabase (production Vercel)
+After=network-online.target
+
+[Service]
+WorkingDirectory=@REPO_DIR@
+ExecStart="@REPO_DIR@/.venv/bin/python" scripts/sync_supabase.py
+EnvironmentFile=@REPO_DIR@/.env
+Type=oneshot
+Nice=10

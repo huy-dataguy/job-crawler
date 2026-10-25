@@ -11,6 +11,7 @@ from bs4 import BeautifulSoup
 
 from . import config
 from . import normalize
+from .http import fetch
 
 _S = requests.Session(impersonate="chrome124")
 
@@ -18,13 +19,7 @@ _SLUG_RE = re.compile(r"-\d{3,4}$")
 
 
 def fetch_html(url: str) -> str:
-    r = _S.get(
-        url,
-        timeout=30,
-        headers={"Accept-Language": "vi,en;q=0.8"},
-    )
-    r.raise_for_status()
-    return r.text
+    return fetch("itviec", url, session=_S)
 
 
 def _txt(node) -> str:
@@ -54,7 +49,8 @@ def parse_listing(html: str) -> list[dict]:
             cls = " ".join(d.get("class", []))
             if "tag-list" in cls or "d-flex flex-wrap" in cls:
                 tags_box = d
-        if tags_box:
+        tags = [_txt(a) for a in card.select('a[data-responsive-tag-list-target="tag"]')]
+        if not tags and tags_box:
             tags = [_txt(a) for a in tags_box.find_all(["span", "a"]) if _txt(a)]
         posted_text = _txt(posted_el).removeprefix("Posted ").removeprefix("Đăng ")
         title = _txt(title_el)
@@ -71,9 +67,12 @@ def parse_listing(html: str) -> list[dict]:
                 "source_id": slug_attr,
                 "title": title,
                 "company": _txt(company_el),
-                "company_url": ("https://itviec.com" + company_href) if company_href else None,
+                "company_url": ("https://itviec.com" + company_href.split("?")[0]) if company_href else None,
                 "url": config.BASE_URL + "it-jobs/" + slug_attr,
-                "city": "Hồ Chí Minh",
+                "city": ", ".join(dict.fromkeys(n.get("title") or _txt(n)
+                         for n in card.select('div.text-nowrap[title]'))),
+                "work_mode": next((m for term,m in (("At office","onsite"),("Hybrid","hybrid"),("Remote","remote"))
+                                   if any(_txt(n) == term for n in card.select('div.text-rich-grey.flex-shrink-0'))), None),
                 "salary": salary_text,
                 "experience": "",
                 # itviec card không ghi số năm → ước tính từ level trong title
@@ -109,7 +108,7 @@ def _posted_iso(text: str) -> str | None:
         unit = {"giờ": "hours", "ngày": "days", "tuần": "weeks",
                 "tháng": "days", "phút": "minutes", "năm": "days"}[m2.group(2).lower()]
         if m2.group(2).lower() in ("tháng", "năm"):
-            n *= 30
+            n *= 365 if m2.group(2).lower() == "năm" else 30
     dt = datetime.now().astimezone() - timedelta(**{unit: n})
     return dt.isoformat(timespec="seconds")
 
@@ -123,7 +122,11 @@ def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
         url = config.LISTING_URL + (f"?page={page}" if page > 1 else "")
         html = fetch_html(url)
         found = parse_listing(html)
+        if not found and page == 1:
+            raise RuntimeError("ITviec first page has no jobs: check source/parser")
         if not found:
+            break
+        if all(j["source_id"] in all_jobs for j in found):
             break
         pages += 1
         for j in found:

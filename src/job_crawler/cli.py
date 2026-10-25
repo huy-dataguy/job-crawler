@@ -1,32 +1,60 @@
-"""CLI: python -m job_crawler [itviec|topcv|topdev|all]"""
+"""Stable local/Windmill entrypoints, guarded by a shared advisory writer lock."""
 from __future__ import annotations
 
-import sys
+import argparse
+import fcntl
+import json
+import signal
 
-from . import config, pipeline
-from .notifier import TelegramNotifier
+from . import config, pipeline, store
 
 
 def main() -> None:
-    target = sys.argv[1] if len(sys.argv) > 1 else "all"
-    if target == "telegram-test":
-        notifier = TelegramNotifier(
-            config.TELEGRAM_BOT_TOKEN,
-            config.TELEGRAM_CHAT_ID,
-            timeout_seconds=config.TELEGRAM_TIMEOUT_SECONDS,
-            min_interval_seconds=config.TELEGRAM_MIN_INTERVAL_SECONDS,
-        )
-        message = notifier.send_test()
-        print({"ok": True, "message_id": message.get("message_id")})
-    elif target == "companies":
-        print(pipeline.run_companies())
-    elif target == "enrich":
-        print(pipeline.run_companies(harvest=False))
-    elif target in pipeline.SOURCES:
-        print(pipeline.run_source(target))
-    else:
-        for r in pipeline.run_all():
-            print(r)
+    def stop(signum, frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, stop)
+    parser = argparse.ArgumentParser(description="Continuous Vietnam IT jobs and company discovery")
+    parser.add_argument("target", nargs="?", default="all",
+                        choices=["all", *pipeline.SOURCES, "companies", "enrich", "recheck", "replay", "migrate", "verify", "telegram-test"])
+    args = parser.parse_args()
+    if args.target == "verify":
+        from .verification import verify
+        raise SystemExit(0 if verify()["ok"] else 1)
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with (config.DATA_DIR / "writer.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print(json.dumps({"status":"skipped", "reason":"another writer is running"}))
+            raise SystemExit(75)  # systemd retries a busy writer after a delay
+        if args.target == "migrate":
+            from .migrations import migrate
+            result = migrate(config.DB_PATH)
+        elif args.target == "telegram-test":
+            from .notifier import TelegramNotifier
+            result = TelegramNotifier(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID).send_test()
+        elif args.target in ("companies", "enrich"):
+            result = pipeline.run_companies(harvest=args.target == "companies")
+        elif args.target == "recheck":
+            from .details import verify_source
+            conn = store.connect(config.DB_PATH)
+            try:
+                result = {source:verify_source(conn, source) for source in pipeline.SOURCES}
+            finally:
+                conn.close()
+        elif args.target == "replay":
+            from .replay import replay_jobs
+            result = replay_jobs()
+        elif args.target in pipeline.SOURCES:
+            result = pipeline.run_source(args.target)
+        else:
+            result = pipeline.run_all()
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        failures = (any("error" in r for r in result) if isinstance(result,list)
+                    else any(isinstance(r,dict) and (r.get("error") or r.get("subs_failed"))
+                             for r in result.values()))
+        if failures:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

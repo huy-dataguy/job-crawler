@@ -1,75 +1,62 @@
+name: jobcrawler-windmill   # project DUY NHẤT của job-crawler — không đụng windmill dự án khác
+
 x-logging: &default-logging
   driver: "json-file"
   options: { max-size: "20m", max-file: "5" }
 
+# Orchestration Windmill cho job-crawler — UI theo dõi pipeline: bấm Run /
+# schedule tự chạy / thấy success-failure từng flow.
+# Worker mount repo NGUYÊN path (giống host) để script bash gọi thẳng
+# .venv/bin/job-crawler — không cần cài lại dependency trong container.
+# Khởi động: cd windmill && docker compose up -d  → UI http://localhost:8132
 services:
   db:
     image: postgres:16
-    shm_size: 1g
     restart: unless-stopped
-    volumes:
-      - db_data:/var/lib/postgresql/data
-    expose: ["5432"]
+    volumes: [db_data:/var/lib/postgresql/data]
     environment:
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-windmill_local}
       POSTGRES_DB: windmill
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
-      timeout: 5s
       retries: 5
     networks: [windmill-network]
 
-  windmill_server:
+  server:
     image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill:main}
     pull_policy: missing
     restart: unless-stopped
-    expose: ["8000"]
-    ports:
-      - "${WM_PORT:-8131}:8000"   # Windmill UI: http://localhost:8131
+    ports: ["${WM_PORT:-8132}:8000"]
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-windmill_local}@db:5432/windmill?sslmode=disable
       - MODE=server
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@jobcrawler.local}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
     depends_on:
       db: { condition: service_healthy }
-    volumes:
-      - ../data:/data            # SQLite job_crawler.db nằm ở ../data của repo
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/version || exit 1"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-      start_period: 15s
     networks: [windmill-network]
 
-  # Worker chạy crawl: có Playwright/Chromium cho job cần browser; crawler TopCV
-  # hiện dùng curl_cffi (TLS impersonate) nên không phụ thuộc Chrome nữa.
-  windmill_worker_jobcrawl:
-    image: heronq02/windmill-worker:latest
+  worker:
+    image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill:main}
     pull_policy: missing
     restart: unless-stopped
+    user: "1000:1000"          # trùng uid dataguy — ghi được SQLite/raw của repo
     environment:
-      - DATABASE_URL=${DATABASE_URL}
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-windmill_local}@db:5432/windmill?sslmode=disable
       - MODE=worker
-      - WORKER_GROUP=jobcrawl
-      - WORKER_TAGS=jobcrawl,python3
-      - JC_DATA_DIR=/data
-      # Chrome trong Windmill worker chạy ở home worker, override để chỉ về chromium của image
-      - HOME=/root
-    depends_on:
-      windmill_server: { condition: service_healthy }
+      - WORKER_GROUPS_ALLOW_ALL=true
+      - HOME=/tmp
     volumes:
-      - ../:/workspace:ro        # code crawler + src/job_crawler
-      - ../data:/data            # SQLite (crawler ghi)
-      - worker_dependency_cache:/tmp/windmill/cache
+      - ${REPO_DIR:-..}:/home/dataguy/Documents/projects/_personal/job-crawler
+      # venv trỏ interpreter uv của host — mount cho symlink sống trong container
+      - /home/dataguy/.local/share/uv/python:/home/dataguy/.local/share/uv/python:ro
+    depends_on:
+      server: { condition: service_started }
     networks: [windmill-network]
-    logging: *default-logging
 
 volumes:
   db_data:
-  worker_dependency_cache:
 
 networks:
   windmill-network:

@@ -1,10 +1,10 @@
 [Unit]
-Description=Job Crawler Dashboard (FastAPI + React bundle, localhost:8130)
+Description=Vietnam Job Crawler Dashboard (localhost:8130)
 After=network-online.target
 
 [Service]
-WorkingDirectory=/home/dataguy/Documents/01 - Projects/_Personal/job-crawler
-ExecStart=/home/dataguy/.local/bin/uv run uvicorn dashboard.main:app --host 127.0.0.1 --port 8130
+WorkingDirectory=@REPO_DIR@
+ExecStart="@REPO_DIR@/.venv/bin/python" -m uvicorn dashboard.main:app --host 127.0.0.1 --port 8130
 Restart=on-failure
 RestartSec=5
 Nice=5

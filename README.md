@@ -1,293 +1,160 @@
-# Job Crawler
+# Job Crawler — Việt Nam & Remote
 
-Crawler việc làm IT tại HCM từ **ITviec**, **TopCV** và **TopDev**. Hệ thống lưu dữ liệu chuẩn hoá vào SQLite, có dashboard để lọc job, và gửi Telegram khi phát hiện job mới.
+Tìm việc IT liên tục trên toàn Việt Nam từ ITviec, TopCV và TopDev; xây dựng
+thư mục công ty độc lập với vòng đời tin tuyển dụng. Dashboard: <http://127.0.0.1:8130>.
+
+## Hành vi mặc định
+
+- Quét job mỗi **15 phút**; quét rộng hơn mỗi ngày lúc **04:37**.
+- Inbox ưu tiên **14 ngày gần nhất**, ngày đăng gốc từ trang chi tiết, và tin
+  **còn mở được kiểm tra trong 24 giờ**. Tin được đẩy lại không tự trở thành tin mới.
+- Xác nhận mở dựa trên JobPosting phù hợp + nút ứng tuyển hiện tại + hạn còn hiệu lực
+  nếu nguồn cung cấp. HTTP 404/410 hoặc hết hạn đóng tin. Timeout/challenge không xác nhận mở.
+- Xem JD, yêu cầu, phúc lợi, hạn nộp, vị trí và hình thức làm việc ngay trên dashboard.
+- Dropdown **Tỉnh / thành** ở đầu trang áp dụng cho cả Inbox, Thống kê và Công ty;
+  giữ lựa chọn khi chuyển tab. Nhận diện tên có dấu/không dấu và các tên như
+  Ha Noi, Hanoi, TP.HCM, Ho Chi Minh. Công ty khớp theo địa chỉ hoặc địa điểm
+  tin tuyển dụng còn mở; KPI, biểu đồ và CSV áp dụng cùng bộ lọc. Có lựa chọn
+  “Toàn quốc” và “Chưa rõ tỉnh / thành”.
+- Chọn “Chưa xác nhận”, “Đã đóng”, “Tất cả” hoặc “Mọi lúc” để xem rộng hơn.
+  Tin không có ngày đăng không vào bộ lọc 14 ngày; chúng vẫn được lưu để kiểm tra.
+- Giữ lịch sử job, thư mục công ty và các dấu đã xem/ẩn/apply. Không tự xóa do
+  không xuất hiện trên vài trang đầu. Một tin vẫn được giữ nếu nguồn khác lỗi.
+
+## Thư mục công ty
+
+- ITviec: sitemap công khai được khai báo trong robots.txt, hiện có hơn 12.000 hồ sơ.
+- TopCV: sitemap con có checkpoint; quét luân phiên từng nhóm, làm mới chu kỳ 7 ngày.
+- TopDev: directory phân trang có checkpoint và công ty tích lũy từ job, có báo rõ phạm vi thu thập.
+- Làm giàu hồ sơ **mỗi giờ** (phút 08, lệch tối đa 60 giây): tên thật, website/tuyển dụng,
+  địa chỉ, ngành, quy mô, mô tả, mô hình, quốc gia, lịch làm việc, OT, kỹ năng, phúc lợi,
+  liên kết công khai nếu nguồn có cung cấp. Chưa có dữ liệu thì để trống.
+- Phân loại “công nghệ”, “có tín hiệu IT”, “chưa phân loại” bằng quy tắc có bằng chứng.
+  Tín hiệu từ directory hoặc từ khóa chưa phải xác nhận cơ cấu phòng ban.
+  Doanh nghiệp ngân hàng/bán lẻ/sản xuất có tuyển IT vẫn thuộc phạm vi ưu tiên.
+- Có tìm kiếm/lọc, tỷ lệ đầy đủ và xuất CSV theo bộ lọc. Con số là **hồ sơ theo nguồn**;
+  một doanh nghiệp có thể có nhiều hồ sơ. Không cam kết bao phủ mọi công ty Việt Nam.
+- Trong tab Công ty, chọn **Thông tin còn thiếu** để lọc hồ sơ thiếu quy mô, lĩnh vực,
+  website, địa chỉ hoặc mô tả. Có thể kết hợp “thiếu tất cả” hoặc “thiếu ít nhất một”
+  mục; thống kê và CSV dùng cùng điều kiện. NULL, chuỗi trống và giá trị như N/A/unknown
+  đều được xem là chưa có thông tin.
+
+## Kiến trúc
 
 ```text
-ITviec / TopCV / TopDev
-            │
-            ▼
-  crawler → SQLite (data/job_crawler.db) → Dashboard (:8130)
-            │
-            └──────────────────────────→ Telegram
-
-Windmill (:8131) chạy crawler mỗi 15 phút (00, 15, 30, 45 — Asia/Ho_Chi_Minh)
+Public listing / company sitemap
+    -> source HTTP adapter -> immutable HTML + append-only manifest
+    -> listing parser -> canonical jobs / directory (SQLite WAL)
+    -> detail verification / profile enrichment queue (bounded, retryable)
+    -> FastAPI -> React dashboard / CSV
 ```
 
-## Tính năng
+Mốc thời gian riêng: posted_at (ngày nguồn), first_seen_at, last_seen_at,
+detail_checked_at, valid_through, enriched_at. Không dùng first_seen thay ngày đăng.
+Raw ở `data/raw/<source>/<date>/<kind>/<sha256>.html`; manifest ở
+`data/raw/manifest.jsonl`; cột `raw_artifact` liên kết hồ sơ đã xử lý tới bằng chứng.
+Crawl runs và checkpoint được lưu trong SQLite. Không cần Docker/Windmill để chạy local.
 
-- Deduplicate theo `source + source_id`; crawl lại chỉ cập nhật `last_seen_at`.
-- **Liên quan cá nhân hoá**: mỗi job được chấm điểm 0–100 khớp profile CV
-  (Data Engineer là hướng chính, FullStack là hướng phụ — xem
-  `src/job_crawler/relevance.py`). Dashboard mặc định xếp "liên quan nhất";
-  badge `% khớp` hiện trên mỗi job (hover xem term khớp).
-- **Thư mục công ty đầy đủ** (bảng `company_directory`): TopCV qua sitemap
-  (~49k công ty), ITviec qua directory phân trang, TopDev qua trang đầu +
-  tích lũy từ tin đăng (sitemap topdev đang lỗi 500 phía server). Mỗi job
-  crawl gắn kèm công ty với tên chính xác + cờ đang tuyển; quy mô công ty
-  được enrich dần theo ngân sách mỗi ngày (ưu tiên công ty đang tuyển).
-- **DB gọn nhẹ, không raw**: chỉ lưu job IT đã làm sạch (non-IT bị bỏ trước khi
-  lưu); job đăng quá `JC_KEEP_DAYS` ngày hoặc biến mất khỏi nguồn sau
-  `JC_STALE_DAYS` ngày sẽ bị xoá (kèm FTS/marks) rồi `VACUUM` — thư mục công ty
-  được giữ lại (dòng nhỏ, không prune).
-- Telegram chỉ push job mới có điểm liên quan ≥ `JC_NOTIFY_MIN_RELEVANCE`
-  (kèm dòng `🎯 Khớp profile: N%`). Gửi lỗi thì job chưa commit và sẽ retry ở lượt sau.
-- Dashboard React/FastAPI: search, filter, đánh dấu đã xem/ẩn và thống kê.
-- Windmill có `no_flow_overlap`: lượt quét chậm không tạo lượt chạy chồng.
-- ITviec và TopDev được xử lý trước; TopCV fetch qua curl_cffi impersonate TLS (chrome124/136/safari184) để vượt Cloudflare — không cần browser.
+Thiết kế và contract: [requirements](docs/requirements/redesign.md),
+[architecture](docs/architecture/design.md), [contracts](docs/data/contracts.md).
 
-## Yêu cầu
+## Cài và chạy
 
-| Thành phần | Mục đích |
-| --- | --- |
-| Git | Clone repository |
-| Python 3.11+ và [uv](https://docs.astral.sh/uv/) | Crawler, dashboard backend, tests |
-| Node.js 20+ và npm | Build dashboard React |
-| Docker Engine + Docker Compose v2 | Windmill, Postgres, crawler worker |
-| `wmill` CLI | Deploy scripts và schedule vào Windmill |
-
-Không cần Chrome/Chromium ở host hay worker: TopCV dùng curl_cffi (TLS impersonate), không spawn browser.
-
-## Quickstart: chạy đầy đủ sau khi clone
-
-### 1. Clone và cài dependencies
+Python 3.11+, uv, Node.js/npm; systemd user cho chạy nền trên Linux.
 
 ```bash
-git clone <URL_REPOSITORY_CUA_BAN> job-crawler
-cd job-crawler
-
-# Python package + test dependencies
 uv sync --extra dev
+npm --prefix frontend ci
+npm --prefix frontend run build
 
-# Tạo frontend bundle để FastAPI có thể serve dashboard
-cd frontend
-npm ci
-npm run build
-cd ..
-```
+# Migrate cộng thêm, tự backup SQLite hiện có vào data/backups/.
+# Chạy trước khi khởi động crawler/dashboard mới.
+uv run job-crawler migrate
 
-Thư mục `data/` được tạo tự động ở lần crawl đầu tiên và không được commit.
+# Crawl thật, không gửi thông báo ra ngoài.
+uv run job-crawler all
+uv run job-crawler companies
 
-### 2. Crawl dữ liệu cục bộ
-
-Chạy từng nguồn trước để kiểm tra network:
-
-```bash
-uv run job-crawler itviec
-uv run job-crawler topdev
-```
-
-Chạy toàn bộ nguồn (kể cả TopCV — chỉ cần network, không cần Chrome):
-
-```bash
-uv run job-crawler
-# hoặc: uv run job-crawler topcv
-```
-
-Dữ liệu ở `data/job_crawler.db`. Không cần xoá database giữa các lần chạy; crawler đã deduplicate.
-
-### 3. Chạy dashboard
-
-Mở terminal khác tại repository root:
-
-```bash
-uv run uvicorn dashboard.main:app --host 0.0.0.0 --port 8130
-```
-
-Mở <http://localhost:8130>. Muốn sửa frontend với hot reload thì chạy thêm:
-
-```bash
-cd frontend
-npm run dev
-```
-
-Vite chạy tại <http://localhost:5173> và proxy API về dashboard `:8130`.
-
-### 4. Khởi động Windmill
-
-```bash
-cd windmill
-cp .env.example .env
-# Đổi ít nhất POSTGRES_PASSWORD và ADMIN_PASSWORD trong .env trước khi dùng lâu dài.
-docker compose up -d
-docker compose ps
-cd ..
-```
-
-Mở <http://localhost:8131>, đăng nhập bằng `ADMIN_EMAIL` / `ADMIN_PASSWORD` trong `windmill/.env`, rồi tạo workspace có **workspace ID** là `jobcrawler`.
-
-### 5. Deploy scripts và schedule
-
-Sau khi cài `wmill` CLI, chạy từ thư mục `windmill/`:
-
-```bash
-cd windmill
-wmill login --base-url http://localhost:8131
-wmill workspace add jobcrawler jobcrawler http://localhost:8131
-wmill workspace switch jobcrawler
-
-wmill script push u/jobcrawler/crawl_itviec.py
-wmill script push u/jobcrawler/crawl_topcv.py
-wmill script push u/jobcrawler/crawl_topdev.py
-wmill script push u/jobcrawler/crawl_all.py
-wmill script push u/jobcrawler/telegram_test.py
-
-wmill schedule push \
-  u/jobcrawler/schedule_crawl_jobcrawl.yaml \
-  u/jobcrawler/schedule_crawl_jobcrawl
-cd ..
-```
-
-Schedule chạy script `u/jobcrawler/crawl_all` ở phút `00, 15, 30, 45` mỗi giờ theo `Asia/Ho_Chi_Minh`.
-
-> Nếu CLI chưa thấy workspace sau login, dùng `wmill workspace list-remote` rồi thêm/chuyển sang profile tương ứng. Repository dùng các lệnh push tường minh ở trên, không yêu cầu `wmill sync push`.
-
-## Cấu hình Telegram
-
-### Tạo bot và lấy chat ID
-
-1. Tạo bot qua [@BotFather](https://t.me/BotFather), lưu token ở nơi an toàn.
-2. Mở bot và bấm **Start** / gửi `/start`.
-3. Gửi một tin nhắn bất kỳ cho bot, sau đó lấy chat ID:
-
-   ```bash
-   export TELEGRAM_BOT_TOKEN='token_tu_BotFather'
-   curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates"
-   ```
-
-   Lấy giá trị `message.chat.id` trong JSON trả về.
-
-### Lưu Telegram secrets trong Windmill
-
-Không commit token vào Git, `.env.example` hoặc `docker-compose.yml`. Scripts lấy encrypted Windmill Variables này qua job token sống ngắn:
-
-```bash
-export TELEGRAM_CHAT_ID='chat_id_cua_ban'
-
-cd windmill
-wmill variable add "$TELEGRAM_BOT_TOKEN" u/jobcrawler/telegram_bot_token
-wmill variable add "$TELEGRAM_CHAT_ID" u/jobcrawler/telegram_chat_id
-wmill script run u/jobcrawler/telegram_test
-cd ..
-```
-
-Khi test thành công, bot nhận tin `Job Crawler đã kết nối Telegram`. Job mới có format:
-
-```text
-🚨 JOB MỚI · TOPDEV
-
-Senior Backend Developer
-🏢 ABC Company
-📍 Hồ Chí Minh
-💰 30–50 triệu
-🧭 3 năm kinh nghiệm
-🛠 Python, FastAPI, PostgreSQL
-🕒 Đăng 2 giờ trước
-
-Xem và ứng tuyển →
-```
-
-Lương, skills và thời gian đăng chỉ hiện nếu nguồn cung cấp. Link ứng tuyển ở cuối tin; link preview được tắt.
-
-### Chạy alert khi crawl local (tuỳ chọn)
-
-```bash
-export TELEGRAM_BOT_TOKEN='...'
-export TELEGRAM_CHAT_ID='...'
-uv run job-crawler telegram-test
-uv run job-crawler itviec
-
-# Tắt alert cho đúng một lần chạy local
-JC_TELEGRAM_ENABLED=0 uv run job-crawler itviec
-```
-
-## Chạy local tự động (systemd timer — nhẹ nhất, không cần Windmill/Docker)
-
-```bash
+# Cài unit với đường dẫn checkout hiện tại và bật chạy nền.
 bash scripts/local/install.sh
 ```
 
-Script làm 3 việc: tạo `.env` (nếu chưa có) để điền secret Telegram, cài
-systemd user units (crawl 15 phút/lượt + dashboard nền `127.0.0.1:8130`),
-enable cả hai. Kiểm tra:
+Cài lại sau khi di chuyển thư mục dự án. Các unit được kiểm tra bằng
+`systemd-analyze --user verify` trước khi kích hoạt. Dashboard bind loopback.
+Host hiện có Linger=yes; service tiếp tục chạy khi đăng xuất và tự khởi động lại
+khi máy bật. Máy phải hoạt động và có mạng để quét được.
 
-```bash
-systemctl --user list-timers job-crawler-crawl.timer
-curl -s localhost:8130/api/stats | head -c 200
-journalctl --user -u job-crawler-crawl.service -n 20 --no-pager
-```
+## Lệnh vận hành
 
-Muốn dashboard/timer chạy ngay cả khi chưa đăng nhập GUI, bật linger:
-`loginctl enable-linger` (cần quyền admin). Dừng/huỷ:
-
-```bash
-systemctl --user disable --now job-crawler-crawl.timer job-crawler-dashboard.service
-```
-
-## Kiểm tra sau khi cài
-
-Chạy ở repository root:
-
-```bash
-uv run pytest -q
-uv run job-crawler itviec
-curl -f http://localhost:8130/api/stats
-
-cd windmill
-docker compose ps
-docker compose logs --tail=100 windmill_worker_jobcrawl
-```
-
-Trong Windmill UI, xác nhận schedule `u/jobcrawler/schedule_crawl_jobcrawl` đang enabled. Trang Runs hiển thị `found`, `new`, `updated`, `notified` của từng nguồn; SQLite lưu manifest trong bảng `crawl_runs`.
-
-## Vận hành thường ngày
-
-| Việc | Lệnh |
+| Lệnh | Chức năng |
 | --- | --- |
-| Crawl toàn bộ local | `uv run job-crawler` |
-| Crawl một nguồn | `uv run job-crawler itviec\|topcv\|topdev` |
-| Harvest thư mục công ty + enrich | `uv run job-crawler companies` |
-| Chỉ enrich quy mô công ty | `uv run job-crawler enrich` |
-| Test Telegram local | `uv run job-crawler telegram-test` |
-| Dashboard | <http://localhost:8130> |
-| Windmill | <http://localhost:8131> |
-| Xem worker log | `cd windmill && docker compose logs -f windmill_worker_jobcrawl` |
-| Dừng Windmill | `cd windmill && docker compose down` |
+| `uv run job-crawler all` | Quét đủ nguồn; lỗi một nguồn vẫn chạy các nguồn còn lại |
+| `uv run job-crawler itviec` | Chỉ một nguồn; tương tự topcv/topdev |
+| `uv run job-crawler companies` | Discovery danh bạ và làm giàu theo ngân sách |
+| `uv run job-crawler enrich` | Chỉ làm giàu hồ sơ |
+| `uv run job-crawler recheck` | Chỉ kiểm tra chi tiết job đã lưu |
+| `uv run job-crawler replay` | Parse lại raw đã lưu, không gọi mạng và không gia hạn bằng chứng còn mở |
+| `uv run job-crawler verify` | Boot gate dữ liệu thật: contract, counts, freshness, raw, query plan |
+| `curl -fsS localhost:8130/api/health` | Tình trạng nguồn và số liệu thực tế |
+| `curl -fsS localhost:8130/api/runs` | Lượt chạy gần đây và lỗi |
+| `systemctl --user list-timers 'job-crawler-*'` | Lịch chạy tiếp theo |
+| `journalctl --user -u job-crawler-crawl.service -n 30 --no-pager` | Log crawler |
 
-`docker compose down` vẫn giữ volumes. Không dùng `docker compose down -v` nếu không chủ đích xoá toàn bộ trạng thái Windmill/Postgres.
+Các CLI dùng chung writer.lock. Busy trả exit 75; systemd thử lại sau 120 giây,
+tránh công ty bị bỏ quét mãi khi trùng lịch job. Lỗi nguồn thật chờ kỳ lịch sau.
+`all` trả exit 1 nếu một nguồn discovery lỗi sau khi đã thử các nguồn còn lại;
+chi tiết bị lỗi từng tin được ghi là partial và có thể thử lại sau 2 giờ.
+Company detail lỗi chờ 6 giờ, thành công làm mới sau 14 ngày.
 
-## Biến môi trường hữu ích
+Tạm dừng:
+
+```bash
+systemctl --user disable --now job-crawler-crawl.timer job-crawler-companies.timer job-crawler-deep.timer
+systemctl --user stop job-crawler-crawl.service job-crawler-companies.service job-crawler-deep.service
+systemctl --user disable --now job-crawler-dashboard.service
+```
+
+## Cấu hình
 
 | Biến | Mặc định | Ý nghĩa |
 | --- | --- | --- |
-| `JC_DATA_DIR` | `./data` | Thư mục SQLite |
-| `JC_DB_PATH` | `$JC_DATA_DIR/job_crawler.db` | Đường dẫn SQLite cụ thể |
-| `JC_MAX_PAGES_ITVIEC` | `3` | Trang ITviec tối đa/lượt |
-| `JC_MAX_PAGES_TOPCV` | `3` | Trang TopCV tối đa/lượt |
-| `JC_MAX_PAGES_TOPDEV` | `4` | Trang TopDev tối đa/lượt |
-| `JC_KEEP_DAYS` | `30` | Giữ job đăng trong vòng N ngày (quá thì xoá) |
-| `JC_STALE_DAYS` | `7` | Xoá job không thấy lại trên nguồn sau N ngày |
-| `JC_NOTIFY_MIN_RELEVANCE` | `40` | Ngưỡng điểm CV để push Telegram (0 = push mọi job mới) |
-| `JC_ITVIEC_COMPANY_PAGES` | `120` | Số trang directory công ty ITviec tối đa |
-| `JC_TOPCV_SITEMAP_PAGES` | `300` | Số sub-sitemap công ty TopCV tối đa |
-| `JC_COMPANY_ENRICH_BUDGET` | `150` | Số trang detail công ty enrich mỗi lượt chạy |
-| `JC_DELAY` | `2.0` | Giãn request, đơn vị giây |
-| `TELEGRAM_BOT_TOKEN` | — | Token bot (chỉ local hoặc Windmill Secret) |
-| `TELEGRAM_CHAT_ID` | — | Chat nhận alert (chỉ local hoặc Windmill Secret) |
-| `JC_TELEGRAM_ENABLED` | tự bật khi đủ secrets | Đặt `0` để tắt local alert |
+| JC_DATA_DIR | ./data | SQLite, raw, manifest và lock |
+| JC_DB_PATH | data/job_crawler.db | Đường dẫn canonical DB |
+| JC_MAX_PAGES_ITVIEC | 10 | Ngân sách trang/lượt |
+| JC_MAX_PAGES_TOPCV | 5 | Ngân sách trang/lượt |
+| JC_MAX_PAGES_TOPDEV | 10 | Ngân sách trang/lượt |
+| JC_JOB_DETAIL_BUDGET | 60 | Kiểm tra chi tiết tối đa mỗi nguồn/lượt |
+| JC_COMPANY_ENRICH_BUDGET | 90 | Hồ sơ tối đa mỗi lượt làm giàu |
+| JC_TOPCV_SITEMAP_PAGES | 10 | Sub-sitemap chưa làm trong mỗi lượt |
+| JC_TOPDEV_COMPANY_PAGES | 10 | Trang danh bạ TopDev tiếp theo mỗi lượt |
+| JC_OPEN_CHECK_HOURS | 24 | Hết bằng chứng còn mở nếu quá thời gian này |
+| JC_DELAY | 2.0 | Giãn request theo nguồn, giây |
+| JC_DEEP_PAGES_ITVIEC/TOPCV/TOPDEV | 50/20/40 | Lượt quét rộng hằng ngày |
+| JC_DEEP_DETAIL_BUDGET | 100 | Chi tiết mỗi nguồn trong lượt rộng |
 
-## Cấu trúc
+Script local nạp `.env` nhưng tắt Telegram trong đợt triển khai này. CLI cũng mặc
+định không gửi tin, kể cả có secret. Chỉ bật lại bằng cấu hình tường minh khi muốn
+sử dụng tính năng Telegram cũ; không commit token vào Git. Các file Windmill cũ
+được giữ để tham khảo, **chưa triển khai lại** và không phải lịch local đang dùng.
 
-```text
-src/job_crawler/  Crawlers, normalize, SQLite store, Telegram notifier
-dashboard/        FastAPI API/dashboard backend
-frontend/         React + Vite dashboard
-windmill/         Docker Compose, Windmill scripts và schedule
-tests/            Tests pipeline/notifier
-data/             SQLite runtime data (tự tạo, git-ignored)
+## Bảo mật (production)
+
+Bản Vercel là trang **riêng tư**: chỉ 1 tài khoản Google được phép đăng nhập
+(`ALLOWED_EMAIL` trong `.env`). Ba lớp: màn login (AuthGate) → mọi `/api/*`
+yêu cầu Bearer token hợp lệ (401 nếu sai) → RLS Postgres chặn cả đường
+PostgREST. Runbook đầy đủ (tạo Google OAuth client, bật provider Supabase,
+kiểm chứng, thu hồi phiên): `docs/security.md`.
+
+## Kiểm chứng
+
+```bash
+uv run pytest -q
+(cd frontend && npx tsc --noEmit && npm run build)
+uv run job-crawler verify
+curl -fsS 'http://127.0.0.1:8130/api/jobs?limit=3'
+curl -fsS 'http://127.0.0.1:8130/api/companies?it_only=1&limit=3'
 ```
 
-## Lưu ý vận hành
-
-- Không tăng số trang hoặc giảm `JC_DELAY` tuỳ tiện; nguồn có thể rate-limit hoặc đổi giao diện.
-- Nếu Cloudflare siết thêm khiến TopCV bị chặn TLS, run Windmill sẽ đỏ ngay với lỗi rõ ràng (không treo); crawler vẫn thử lại ở schedule sau.
-- Nếu bot token từng bị lộ, revoke/regenerate ở BotFather, sau đó cập nhật `u/jobcrawler/telegram_bot_token` trong Windmill.
+Kết quả runtime và ảnh giao diện ở `data/verification/` (không đưa dữ liệu vào Git).
+Backup trước migrate ở `data/backups/`. Raw và lịch sử tăng theo thời gian; giám sát
+thư mục data và chỉ áp dụng chính sách giữ dữ liệu sau khi đã chọn phạm vi retention.

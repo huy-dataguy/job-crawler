@@ -1,0 +1,13 @@
+[Unit]
+Description=Company directory discovery and public profile enrichment
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=@REPO_DIR@
+ExecStart="@REPO_DIR@/scripts/local/run_companies.sh"
+TimeoutStartSec=20min
+Nice=15
+Restart=on-failure
+RestartSec=120
+RestartPreventExitStatus=1 2

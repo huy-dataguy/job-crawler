@@ -1,12 +1,14 @@
 import { useState } from "react";
 import type { Filters, Meta, MarkState } from "./api";
 import type { Stats } from "./api";
+import { BUCKET_COLOR } from "./company";
 
 const SINCE_OPTIONS = [
   { v: 0, label: "Mọi lúc" },
   { v: 24, label: "24h" },
   { v: 72, label: "3 ngày" },
   { v: 168, label: "7 ngày" },
+  { v: 336, label: "14 ngày" },
 ];
 
 const REL_OPTIONS = [
@@ -15,8 +17,9 @@ const REL_OPTIONS = [
   { v: 70, label: "Rất khớp ≥70" },
 ];
 
-const MARK_TABS: { v: MarkState; label: string; countKey?: keyof Stats["queue"] }[] = [
+const MARK_TABS: { v: MarkState; label: string; countKey?: keyof NonNullable<Stats["queue"]> }[] = [
   { v: "unseen", label: "Cần xem", countKey: "unseen" },
+  { v: "starred", label: "★ Đã sao", countKey: "starred" },
   { v: "viewed", label: "Đã xem", countKey: "viewed" },
   { v: "applied", label: "Đã apply", countKey: "applied" },
   { v: "hidden", label: "Không OK", countKey: "hidden" },
@@ -32,29 +35,30 @@ export default function FilterBar({ filters, setF, meta, stats }: {
   const q = stats?.queue;
 
   return (
-    <div className="space-y-2.5">
-      {/* Tabs trạng thái review — inbox */}
+    <div className="mt-4 space-y-2.5">
+      {/* Tabs trạng thái review — inbox: active là pill navy kiểu techvibe */}
       <div className="flex items-center gap-1.5 flex-wrap">
         {MARK_TABS.map((t) => {
           const active = filters.mark === t.v;
           const n = q?.[t.countKey!] ?? null;
           return (
             <button key={t.v} onClick={() => setF({ ...filters, mark: t.v, show_hidden: t.v === "hidden" ? 1 : 0 })}
-              className={`px-3.5 py-1.5 rounded-full text-sm font-semibold border transition
-                ${active ? "bg-gradient-to-r from-ember to-[#ff8a3c] text-white border-transparent shadow" : "bg-panel text-dim border-edge hover:border-faint hover:text-mist"}`}>
+              className={`px-4 py-1.5 rounded-full text-sm font-semibold border transition
+                ${active ? "bg-navy text-white border-navy shadow-hard-sm" : "bg-white text-slate border-line hover:border-line-deep hover:text-ink"}`}>
               {t.label}
-              {n != null && <span className={`font-mono text-xs ml-1.5 ${active ? "text-white/85" : "text-faint"}`}>{n}</span>}
+              {n != null && <span className={`font-mono text-xs ml-1.5 ${active ? "text-white/70" : "text-faint"}`}>{n}</span>}
             </button>
           );
         })}
       </div>
 
-      {/* Chip lọc nhanh */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <Group label="Khớp profile">
-          {REL_OPTIONS.map((o) => (
-            <Chip key={o.v} active={filters.relevance_min === o.v}
-              onClick={() => setF({ ...filters, relevance_min: o.v })}>{o.label}</Chip>
+      {/* Chip lọc nhanh — nhóm KN lên trước vì ≤2 năm là ràng buộc chính */}
+      <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+        <Group label="KN yêu cầu" highlight>
+          {[{ v: "", label: "Tất cả" }, { v: "0", label: "Fresher" }, { v: "1", label: "≤1 năm" },
+            { v: "2", label: "≤2 năm" }, { v: "3", label: "≤3 năm" }, { v: "5", label: "≤5 năm" }].map((o) => (
+            <Chip key={o.v || "all"} active={filters.exp === o.v}
+              onClick={() => setF({ ...filters, exp: o.v })}>{o.label}</Chip>
           ))}
         </Group>
         <Group label="Đăng">
@@ -63,17 +67,10 @@ export default function FilterBar({ filters, setF, meta, stats }: {
               onClick={() => setF({ ...filters, since_hours: o.v })}>{o.label}</Chip>
           ))}
         </Group>
-        <Group label="KN yêu cầu">
-          {[{ v: "", label: "Tất cả" }, { v: "0", label: "Fresher" }, { v: "1", label: "≤1 năm" },
-            { v: "2", label: "≤2 năm" }, { v: "3", label: "≤3 năm" }, { v: "5", label: "≤5 năm" }].map((o) => (
-            <Chip key={o.v || "all"} active={filters.exp === o.v}
-              onClick={() => setF({ ...filters, exp: o.v })}>{o.label}</Chip>
-          ))}
-        </Group>
-        <Group label="Nguồn">
-          {[{ v: "", label: "Tất cả" }, { v: "itviec", label: "ITviec" }, { v: "topcv", label: "TopCV" }, { v: "topdev", label: "TopDev" }].map((o) => (
-            <Chip key={o.v || "all"} active={filters.source === o.v}
-              onClick={() => setF({ ...filters, source: o.v })}>{o.label}</Chip>
+        <Group label="Khớp CV">
+          {REL_OPTIONS.map((o) => (
+            <Chip key={o.v} active={filters.relevance_min === o.v}
+              onClick={() => setF({ ...filters, relevance_min: o.v })}>{o.label}</Chip>
           ))}
         </Group>
         <Group label="Lương">
@@ -82,18 +79,51 @@ export default function FilterBar({ filters, setF, meta, stats }: {
               onClick={() => setF({ ...filters, salary_min: v })}>{v === 0 ? "Tất cả" : `≥${v}tr`}</Chip>
           ))}
         </Group>
+      </div>
+
+      <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
+        <Group label="Quy mô công ty">
+          <Chip active={!filters.company_size}
+            onClick={() => setF({ ...filters, company_size: "" })}>Tất cả</Chip>
+          {(meta?.company_sizes || []).map((s) => (
+            <Chip key={s.bucket} active={filters.company_size === s.bucket}
+              onClick={() => setF({ ...filters, company_size: filters.company_size === s.bucket ? "" : s.bucket })}>
+              <span className="inline-flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: BUCKET_COLOR[s.bucket] }} aria-hidden />
+                {s.bucket}
+                <span className="font-mono text-[10px] opacity-60">{s.n}</span>
+              </span>
+            </Chip>
+          ))}
+        </Group>
+        <Group label="Nguồn">
+          {[{ v: "", label: "Tất cả" }, { v: "itviec", label: "ITviec" }, { v: "topcv", label: "TopCV" }, { v: "topdev", label: "TopDev" }].map((o) => (
+            <Chip key={o.v || "all"} active={filters.source === o.v}
+              onClick={() => setF({ ...filters, source: o.v })}>{o.label}</Chip>
+          ))}
+        </Group>
+        <Group label="Tình trạng">
+          {([{v:"open",label:"Còn mở"},{v:"unknown",label:"Chưa xác nhận"},{v:"closed",label:"Đã đóng"},{v:"all",label:"Tất cả"}] as const).map(o =>
+            <Chip key={o.v} active={filters.status === o.v} onClick={() => setF({...filters,status:o.v})}>{o.label}</Chip>)}
+        </Group>
+        <Group label="Hình thức">
+          <select aria-label="Hình thức làm việc" value={filters.work_mode} onChange={e=>setF({...filters,work_mode:e.target.value})}
+            className="bg-white border border-line rounded-full px-3 py-1 text-xs text-slate focus:outline-none focus:border-peri">
+            <option value="">Mọi hình thức</option><option value="remote">Remote</option><option value="hybrid">Hybrid</option><option value="onsite">Tại văn phòng</option>
+          </select>
+        </Group>
         <button onClick={() => setAdvOpen(!advOpen)}
-          className={`px-3 py-1 rounded-full text-xs font-medium border transition ${advOpen ? "bg-violet/15 text-violet border-violet/40" : "bg-panel text-dim border-edge hover:border-faint"}`}>
+          className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${advOpen ? "bg-peri-soft text-peri-deep border-peri/40" : "bg-white text-slate border-line hover:border-line-deep"}`}>
           Nâng cao {advOpen ? "▴" : "▾"}
         </button>
       </div>
 
       {/* Bộ lọc nâng cao — chỉ mở khi cần */}
       {advOpen && (
-        <div className="bg-panel border border-edge rounded-[14px] p-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="soft-card rounded-2xl p-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {meta && (
             <AdvGroup title="Kỹ năng IT">
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+              <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto strip-scroll">
                 {meta.top_skills.slice(0, 24).map((t) => (
                   <Chip key={t.name} active={filters.skill === t.name}
                     onClick={() => setF({ ...filters, skill: filters.skill === t.name ? "" : t.name })}>
@@ -117,7 +147,7 @@ export default function FilterBar({ filters, setF, meta, stats }: {
           )}
           {meta && (
             <AdvGroup title="Ngành">
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+              <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto strip-scroll">
                 {meta.categories.slice(0, 16).map((c) => (
                   <Chip key={c.name} active={filters.category === c.name}
                     onClick={() => setF({ ...filters, category: filters.category === c.name ? "" : c.name })}>
@@ -127,17 +157,9 @@ export default function FilterBar({ filters, setF, meta, stats }: {
               </div>
             </AdvGroup>
           )}
-          <AdvGroup title="Quy mô công ty">
-            <div className="flex flex-wrap gap-1.5">
-              {["", "<50", "50-100", "101-150", "151-300", "301-1000", "1000+"].map((v) => (
-                <Chip key={v || "all"} active={filters.company_size === v}
-                  onClick={() => setF({ ...filters, company_size: v })}>{v || "Tất cả"}</Chip>
-              ))}
-            </div>
-          </AdvGroup>
           {meta && (
             <AdvGroup title="Tag gốc (TopCV)">
-              <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+              <div className="flex flex-wrap gap-1.5 max-h-44 overflow-y-auto strip-scroll">
                 {meta.top_tags.slice(0, 24).map((t) => (
                   <Chip key={t.name} active={filters.tag === t.name}
                     onClick={() => setF({ ...filters, tag: filters.tag === t.name ? "" : t.name })}>
@@ -155,11 +177,11 @@ export default function FilterBar({ filters, setF, meta, stats }: {
   );
 }
 
-function Group({ label, children }: { label: string; children: React.ReactNode }) {
+function Group({ label, children, highlight }: { label: string; children: React.ReactNode; highlight?: boolean }) {
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className="font-mono text-[10px] uppercase tracking-wide text-faint">{label}</span>
-      <div className="flex rounded-full bg-night border border-edge p-0.5">{children}</div>
+      <span className={`font-mono text-[10px] uppercase tracking-wider ${highlight ? "text-peri font-semibold" : "text-faint"}`}>{label}</span>
+      <div className="flex flex-wrap gap-0.5 rounded-full bg-white border border-line p-0.5 shadow-sm">{children}</div>
     </div>
   );
 }
@@ -167,7 +189,7 @@ function Group({ label, children }: { label: string; children: React.ReactNode }
 function AdvGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="font-mono text-xs text-faint mb-2">{title}</h3>
+      <h3 className="font-mono text-[11px] text-faint mb-2 uppercase tracking-wider">{title}</h3>
       {children}
     </div>
   );
@@ -177,7 +199,7 @@ function Chip({ active, children, onClick }: { active: boolean; children: React.
   return (
     <button onClick={onClick}
       className={`px-2.5 py-1 rounded-full text-xs font-medium transition
-        ${active ? "bg-ember text-white" : "text-dim hover:text-mist"}`}>
+        ${active ? "bg-peri text-white shadow-sm" : "text-slate hover:bg-paper hover:text-ink"}`}>
       {children}
     </button>
   );
@@ -188,7 +210,7 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
   if (filters.q) pills.push({ label: `“${filters.q}”`, clear: () => setF({ ...filters, q: "" }) });
   if (filters.relevance_min) pills.push({ label: `khớp ≥${filters.relevance_min}`, clear: () => setF({ ...filters, relevance_min: 0 }) });
   if (filters.source) pills.push({ label: `nguồn ${filters.source}`, clear: () => setF({ ...filters, source: "" }) });
-  if ((filters as any).company) pills.push({ label: `công ty ${(filters as any).company.slice(0, 30)}`, clear: () => setF({ ...filters, company: "" } as Filters) });
+  if (filters.company) pills.push({ label: `công ty ${filters.company.slice(0, 30)}`, clear: () => setF({ ...filters, company: "" }) });
   if (filters.since_hours) pills.push({ label: `đăng ${SINCE_OPTIONS.find((o) => o.v === filters.since_hours)?.label}`, clear: () => setF({ ...filters, since_hours: 0 }) });
   if (filters.skill) pills.push({ label: `kỹ năng ${filters.skill}`, clear: () => setF({ ...filters, skill: "" }) });
   if (filters.category) pills.push({ label: `ngành ${filters.category}`, clear: () => setF({ ...filters, category: "" }) });
@@ -200,10 +222,10 @@ function ActivePills({ filters, setF }: { filters: Filters; setF: (f: Filters) =
   if (pills.length === 0) return null;
   return (
     <div className="flex items-center gap-1.5 flex-wrap" aria-live="polite">
-      <span className="font-mono text-xs text-faint">đang lọc:</span>
+      <span className="font-mono text-[11px] text-faint">đang lọc:</span>
       {pills.map((p) => (
         <button key={p.label} onClick={p.clear} title="Gỡ lọc này"
-          className="px-2.5 py-1 rounded-full text-[13px] bg-violet/15 text-violet border border-violet/30 font-medium hover:bg-violet/25 transition">
+          className="px-2.5 py-1 rounded-full text-[12px] bg-peri-soft text-peri-deep border border-peri/30 font-medium hover:bg-peri/15 transition">
           {p.label} <span aria-hidden>×</span>
         </button>
       ))}

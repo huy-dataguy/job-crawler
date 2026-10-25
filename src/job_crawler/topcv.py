@@ -1,15 +1,4 @@
-"""Crawler TopCV — curl_cffi impersonate TLS profile (không cần Chrome).
-
-Recon + probe 23/09 đã verify từ máy local VÀ từ trong Windmill worker:
-- Cloudflare TopCV chặn theo TLS fingerprint (JA3), hiện KHÔNG ép JS challenge:
-  curl_cffi impersonate `chrome124`/`chrome136`/`safari184` → 200 full HTML
-  (cả listing lẫn company page); `chrome131`/`firefox135`/`edge101`/curl thô → 403.
-- Headless Chrome trong worker bị treo → TimeoutExpired 120s mỗi run (lý do
-  topcv chết từ 19/09) → bỏ hẳn Chrome.
-
-Nếu CF siết lại: `fetch_html` thử lần lượt chuỗi profile, hết chuỗi thì raise
-(challenge-then-stop, không đổi UA hammer — tránh bị ban nặng hơn).
-"""
+"""TopCV public national IT listings, acquired through a source-scoped TLS session."""
 from __future__ import annotations
 
 import json
@@ -21,22 +10,15 @@ from curl_cffi import requests as curl_requests
 from . import config
 from . import normalize
 from .itviec import _posted_iso
+from .http import fetch
 
-# Chuỗi profile TLS impersonate theo thứ tự ưu tiên. Profile pass đầu tiên sẽ
-# được ghim (sticky) để các request sau chỉ tốn 1 lần fetch.
-_IMPERSONATE_CHAIN: tuple[str, ...] = ("chrome124", "chrome136", "safari184")
-_sticky_profile: str | None = None
 _session: curl_requests.Session | None = None
-
-# Marker của trang challenge Cloudflare (trang THẬT không chứa các chuỗi này
-# trong title/head; "challenge-platform" thì trang thật cũng có nên không dùng).
-_CHALLENGE_MARKERS = ("Just a moment", "Attention Required")
 
 
 def _get_session() -> curl_requests.Session:
     global _session
     if _session is None:
-        _session = curl_requests.Session()
+        _session = curl_requests.Session(impersonate="chrome124")
     return _session
 
 
@@ -45,43 +27,11 @@ def fetch_html(
     expect: tuple[str, ...] = (),
     timeout: float = 30,
 ) -> str:
-    """GET url qua curl_cffi, thử lần lượt chuỗi profile TLS.
-
-    Nhận là challenge khi: status != 200, marker Cloudflare, hoặc thiếu token
-    trong `expect` (ví dụ "data-job-id" cho listing, "Quy mô" cho company page).
-    Hết chuỗi profile mà vẫn chặn → raise RuntimeError, KHÔNG retry đổi UA.
-    """
-    global _sticky_profile
-    order: list[str] = []
-    if _sticky_profile:
-        order.append(_sticky_profile)
-    order.extend(p for p in _IMPERSONATE_CHAIN if p not in order)
-
-    errors: list[str] = []
-    session = _get_session()
-    for imp in order:
-        try:
-            r = session.get(
-                url,
-                impersonate=imp,
-                timeout=timeout,
-                headers={"Accept-Language": "vi,en;q=0.8"},
-            )
-        except Exception as e:  # transport error → thử profile kế tiếp
-            errors.append(f"{imp}: {type(e).__name__}: {e}")
-            continue
-        html = r.text
-        challenge = r.status_code != 200 or any(m in html for m in _CHALLENGE_MARKERS)
-        missing_expect = bool(expect) and not all(tok in html for tok in expect)
-        if challenge or missing_expect:
-            errors.append(f"{imp}: status={r.status_code} challenge={challenge}")
-            continue
-        _sticky_profile = imp
-        return html
-    raise RuntimeError(
-        f"TopCV chặn mọi profile TLS cho {url} [{'; '.join(errors)}] — "
-        "dừng theo pattern challenge-then-stop, không hammer."
-    )
+    """Fetch one public page, stopping on challenge/rate limit."""
+    html = fetch("topcv", url, session=_get_session(), timeout=timeout)
+    if expect and not all(tok in html for tok in expect):
+        raise RuntimeError(f"TopCV schema changed: missing {expect}")
+    return html
 
 
 def _fetch_listing(url: str) -> str:
@@ -91,7 +41,7 @@ def _fetch_listing(url: str) -> str:
 def parse_listing(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     jobs: list[dict] = []
-    for card in soup.select("div[data-job-id]") :
+    for card in soup.select("div.job-item-search-result[data-job-id]") :
         jid = card.get("data-job-id")
         if not jid:
             continue
@@ -158,11 +108,15 @@ def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
     all_jobs: dict[str, dict] = {}
     pages = 0
     for page in range(1, (max_pages or config.MAX_PAGES_TOPCV) + 1):
-        url = config.TOPCV_URL + (f"&page={page}" if page > 1 else "")
+        url = config.TOPCV_URL + (("&" if "?" in config.TOPCV_URL else "?") + f"page={page}" if page > 1 else "")
         jobs = parse_listing(_fetch_listing(url))
         # Trang biến thế — bỏ qua card không có title, tránh ghi rác
         jobs = [j for j in jobs if j["title"]]
+        if not jobs and page == 1:
+            raise RuntimeError("TopCV first page has no jobs: check source/parser")
         if not jobs:
+            break
+        if all(j["source_id"] in all_jobs for j in jobs):
             break
         pages += 1
         for j in jobs:

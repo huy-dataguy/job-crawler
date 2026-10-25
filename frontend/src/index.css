@@ -4,62 +4,101 @@
 @import "@fontsource/be-vietnam-pro/600.css";
 @import "@fontsource/be-vietnam-pro/700.css";
 @import "@fontsource/be-vietnam-pro/800.css";
+@import "@fontsource/lora/400-italic.css";
+@import "@fontsource/lora/500-italic.css";
+@import "@fontsource/lora/600-italic.css";
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "@fontsource/ibm-plex-mono/600.css";
 
-/* Theme "đêm săn việc": nền chàm đêm + ember/violet/mint.
-   Tránh default đen-tuyền + acid-green: nền là chàm #0D1021, accent là
-   cặp ember→violet, mint chỉ dùng cho tiền/tươi mới. */
+/* Theme "vibe hunt" — sáng, nhiều không khí, lấy từ 4 site mẫu:
+   - teamtechvibe.com (yêu thích nhất): nền lavender very soft, pill nav nổi,
+     heading khổng lồ với từ nhấn serif italic màu peri, CTA đậm.
+   - hoanglongteam / mayanhcudanang: giấy kẻ ô mờ, viền ink + đổ cứng
+     (hard shadow) cho CTA chính, accent đỏ san hô.
+   - axonactive: navy sâu cho pill active / nút tối.
+   Đọc Appalachian: card trắng bo lớn + soft shadow; hero dùng font-display
+   (Lora italic) cho từ nhấn. */
 @theme {
-  --color-night: #0d1021;
-  --color-panel: #161a30;
-  --color-panel-deep: #10142a;
-  --color-edge: #2a3052;
-  --color-mist: #f4f5fa;
-  --color-dim: #a7acc2;
-  --color-faint: #6f7590;
-  --color-ember: #ff5a3c;
-  --color-ember-deep: #e04427;
-  --color-violet: #8b7cff;
-  --color-mint: #34d399;
+  --color-paper: #eef0fa;       /* nền trang — lavender very soft */
+  --color-paper-deep: #e4e7f7;  /* nền đục hơn cho khối chìm */
+  --color-card: #ffffff;
+  --color-ink: #181c40;         /* chữ chính — navy sâu */
+  --color-slate: #474d74;       /* chữ phụ */
+  --color-mute: #7c82a5;        /* chữ thứ ba */
+  --color-faint: #9aa0bf;       /* mono nhỏ, meta */
+  --color-line: #e1e4f3;        /* border card */
+  --color-line-deep: #c9cde6;   /* border đậm hơn */
+  --color-peri: #5566ff;        /* primary — periwinkle teamtechvibe */
+  --color-peri-deep: #4353e8;
+  --color-peri-soft: #eef0ff;   /* nền chip peri */
+  --color-coral: #ee5238;       /* accent nóng — "mới", hidden */
+  --color-coral-soft: #fdeeeb;
+  --color-mint: #0da678;        /* còn mở / đã apply */
+  --color-mint-soft: #e6f7f1;
+  --color-amber: #b45309;       /* lương — text amber đậm đọc được trên trắng */
+  --color-amber-soft: #fef3e2;
+  --color-navy: #1d2249;        /* pill active, nút tối kiểu techvibe */
   --color-sun: #ffc531;
 
   --font-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Lora", Georgia, "Times New Roman", serif;
 }
 
 html {
-  background: var(--color-night);
-  color-scheme: dark;
+  background: var(--color-paper);
+  color-scheme: light;
 }
 
 body {
   font-family: var(--font-sans);
+  color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
 }
 
-/* quầng sáng header — subtle */
-.hero-glow {
+/* Nền lavender very soft, gradient quầng peri/coral — KHÔNG kẻ ô (rối mắt).
+   Tham chiếu vividkit.dev: nền sạch, content nổi trên card trắng. */
+.paper-bg {
   background:
-    radial-gradient(520px 140px at 14% -40px, rgba(139, 124, 255, 0.20), transparent 70%),
-    radial-gradient(480px 130px at 86% -30px, rgba(255, 90, 60, 0.16), transparent 70%);
+    radial-gradient(900px 420px at 10% -10%, rgba(85, 102, 255, 0.09), transparent 62%),
+    radial-gradient(700px 360px at 95% -8%, rgba(238, 82, 56, 0.05), transparent 58%),
+    radial-gradient(1000px 500px at 50% 110%, rgba(85, 102, 255, 0.05), transparent 60%),
+    linear-gradient(180deg, #f0f2fc 0%, #eef0fa 40%, #eceef9 100%);
 }
 
-/* dải tin mới cuộn ngang */
-.strip-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-edge) transparent;
+/* Từ nhấn serif italic trong heading — chữ ký teamtechvibe */
+.accent-italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  color: var(--color-peri);
+  letter-spacing: -0.01em;
 }
-.strip-scroll::-webkit-scrollbar {
-  height: 6px;
+
+/* Đổ cứng kiểu neo-brutalist — chỉ cho CTA chính và role đang chọn */
+.shadow-hard { box-shadow: 3px 3px 0 0 var(--color-ink); }
+.shadow-hard-sm { box-shadow: 2px 2px 0 0 var(--color-ink); }
+.shadow-hard-peri { box-shadow: 3px 3px 0 0 var(--color-peri); }
+.press-hard {
+  transition: transform 120ms ease, box-shadow 120ms ease;
 }
-.strip-scroll::-webkit-scrollbar-thumb {
-  background: var(--color-edge);
-  border-radius: 3px;
+.press-hard:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 0 var(--color-ink); }
+.press-hard:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 0 var(--color-ink); }
+
+/* Card trắng chuẩn */
+.soft-card {
+  background: var(--color-card);
+  border: 1px solid var(--color-line);
+  box-shadow: 0 1px 2px rgba(24, 28, 64, 0.04), 0 12px 32px -18px rgba(24, 28, 64, 0.18);
 }
+
+/* Scrollbar mảnh trên nền sáng */
+.strip-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line-deep) transparent; }
+.strip-scroll::-webkit-scrollbar { height: 6px; width: 6px; }
+.strip-scroll::-webkit-scrollbar-thumb { background: var(--color-line-deep); border-radius: 3px; }
 
 ::selection {
-  background: #ff5a3c;
+  background: var(--color-peri);
   color: #fff;
 }
