@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { authConfigError, useAuth } from "./auth";
+import Logo from "./Logo";
 
 // Cổng đăng nhập: trang là của riêng chủ sở hữu — API từ chối mọi request
 // không có token hợp lệ của ALLOWED_EMAIL, nên gate này chỉ để UX mượt (không
@@ -18,7 +19,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
   if (state.status === "loading") {
     return (
       <Shell>
-        <div className="w-11 h-11 rounded-[14px] bg-gradient-to-br from-peri to-coral text-white font-extrabold flex items-center justify-center text-xl animate-pulse">J</div>
+        <Logo size={64} className="animate-[pulse_1.6s_ease-in-out_infinite]" />
         <p className="mt-4 font-mono text-xs text-faint">đang mở khóa…</p>
       </Shell>
     );
@@ -28,7 +29,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <Shell>
         <Card>
-          <Logo />
+          <LogoMark />
           <p className="font-mono text-[11px] tracking-[0.18em] text-coral font-medium">KHÔNG CÓ QUYỀN TRUY CẬP</p>
           <h1 className="mt-3 text-[26px] font-extrabold tracking-tight leading-tight">
             Tài khoản này <em className="accent-italic">không được mời</em>.
@@ -50,7 +51,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <Shell>
         <Card>
-          <Logo />
+          <LogoMark />
           <p className="font-mono text-[11px] tracking-[0.18em] text-mute font-medium flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-peri inline-block" aria-hidden />
             RIÊNG TƯ · CHỈ TÀI KHOẢN ĐƯỢC MỜI
@@ -93,11 +94,11 @@ function Card({ children }: { children: ReactNode }) {
   );
 }
 
-function Logo() {
+function LogoMark() {
   return (
-    <div className="flex items-center gap-2.5 mb-5">
-      <span className="w-9 h-9 rounded-[11px] bg-gradient-to-br from-peri to-coral text-white font-extrabold flex items-center justify-center text-lg">J</span>
-      <span className="font-extrabold tracking-tight text-[17px]">Săn Việc</span>
+    <div className="flex items-center gap-3 mb-5">
+      <Logo size={44} />
+      <span className="font-extrabold tracking-tight text-[19px]">Săn Việc</span>
     </div>
   );
 }

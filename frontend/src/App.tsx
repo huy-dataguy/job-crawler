@@ -10,6 +10,7 @@ import Companies from "./Companies";
 import ProvinceFilter from "./ProvinceFilter";
 import RoleSwitcher from "./RoleSwitcher";
 import SectionHead from "./SectionHead";
+import Logo from "./Logo";
 import { useAuth } from "./auth";
 
 const PAGE_SIZE = 50;
@@ -171,7 +172,7 @@ export default function App() {
         <div className="mx-auto max-w-[1120px] rounded-2xl bg-white/90 backdrop-blur border border-line shadow-[0_2px_6px_rgba(24,28,64,0.05),0_16px_40px_-20px_rgba(24,28,64,0.25)]">
           <div className="flex items-center justify-between gap-2 px-3 py-2">
             <button onClick={goHome} className="flex items-center gap-2.5 hover:opacity-80 transition shrink-0" aria-label="Home">
-              <span className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-peri to-coral text-white font-extrabold flex items-center justify-center text-lg">J</span>
+              <Logo size={34} />
               <span className="font-extrabold tracking-tight text-[16px] hidden sm:block">Săn Việc</span>
               <span className="hidden lg:inline font-mono text-[11px] text-faint">{dateLine}</span>
             </button>
