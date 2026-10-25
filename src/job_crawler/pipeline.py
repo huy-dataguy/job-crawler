@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from . import companies_crawl, config, itviec, relevance, store, topcv, topdev
+from . import companies_crawl, config, itviec, raw, relevance, store, topcv, topdev
 from .notifier import TelegramError, TelegramNotifier
 from . import details
 
@@ -26,14 +26,18 @@ def _notifier() -> TelegramNotifier | None:
     )
 
 
-def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
+def run_source(name: str, *, notifier: TelegramNotifier | None = None,
+               max_pages: int | None = None) -> dict:
     conn = store.connect(config.DB_PATH)
     companies_crawl.ensure_directory_tables(conn)
     run_id = store.start_run(conn, name)
     pages = found = new = upd = notified = skipped_non_it = 0
     seen_slugs: set[str] = set()
     try:
-        raw_jobs, pages = SOURCES[name].crawl()
+        if max_pages is None:
+            raw_jobs, pages = SOURCES[name].crawl()
+        else:
+            raw_jobs, pages = SOURCES[name].crawl(max_pages=max_pages)
         # DB chỉ giữ job IT (topcv trộn job phi IT — bỏ trước khi lưu)
         skipped_non_it = sum(1 for j in raw_jobs if not j.get("is_it", 1))
         jobs = [j for j in raw_jobs if j.get("is_it", 1)]
@@ -72,6 +76,7 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
                          new_count=new, updated_count=upd,
                          note=f"telegram_notified={notified} "
                               f"skipped_non_it={skipped_non_it} details={json.dumps(detail_result)}")
+        raw_gc = raw.sweep()
         return {
             "source": name,
             "found": found,
@@ -81,6 +86,7 @@ def run_source(name: str, *, notifier: TelegramNotifier | None = None) -> dict:
             "notified": notified,
             "skipped_non_it": skipped_non_it,
             "pruned": pruned,
+            "raw_gc": raw_gc,
             "details": detail_result,
         }
     except BaseException as e:

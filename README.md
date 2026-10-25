@@ -5,7 +5,12 @@ thư mục công ty độc lập với vòng đời tin tuyển dụng. Dashboar
 
 ## Hành vi mặc định
 
-- Quét job mỗi **15 phút**; quét rộng hơn mỗi ngày lúc **04:37**.
+- Quét job mỗi **15 phút** (quick — 2 trang/nguồn, job mới luôn nằm đầu listing);
+  quét đủ sâu mỗi ngày lúc **04:37** (override `JC_DEEP_PAGES_*` = 50/20/40).
+- **Raw evidence có vòng đời**: nén gzip khi lưu (trùng nội dung vẫn dedupe theo
+  sha256), xoá tự động sau `JC_RAW_RETENTION_HOURS` (mặc định 48h) ngay sau khi
+  dữ liệu đã vào SQLite — `job-crawler raw-gc` dọn tay bất cứ lúc nào. Tiết kiệm
+  ~7 GB/ngày so với lưu không giới hạn.
 - Inbox ưu tiên **14 ngày gần nhất**, ngày đăng gốc từ trang chi tiết, và tin
   **còn mở được kiểm tra trong 24 giờ**. Tin được đẩy lại không tự trở thành tin mới.
 - Xác nhận mở dựa trên JobPosting phù hợp + nút ứng tuyển hiện tại + hạn còn hiệu lực

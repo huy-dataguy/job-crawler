@@ -106,12 +106,27 @@ def test_company_it_classification_does_not_exclude_banks():
     assert profiles.classify({'source':'topcv','industry':'Software products'})[0]=='technology'
 
 
-def test_raw_evidence_is_immutable_with_manifest():
+def test_raw_evidence_is_immutable_gzipped_with_manifest():
     a=raw.preserve('itviec','https://itviec.com/x','first')
     b=raw.preserve('itviec','https://itviec.com/x','second')
     from job_crawler import config as cfg
-    assert a!=b and (cfg.DATA_DIR/a).read_text()=='first'
+    assert a!=b and raw.read(a)=='first' and raw.read(b)=='second'
+    assert (cfg.DATA_DIR/a).suffix=='.gz'  # nén trên đĩa, content-addressed
     assert len((cfg.DATA_DIR/'raw/manifest.jsonl').read_text().splitlines())==2
+
+
+def test_raw_sweep_removes_expired_and_prunes_manifest(monkeypatch):
+    import os, time
+    from job_crawler import config as cfg
+    old=raw.preserve('itviec','https://itviec.com/old','old-body')
+    fresh=raw.preserve('itviec','https://itviec.com/fresh','fresh-body')
+    os.utime(cfg.DATA_DIR/old,(time.time()-49*3600,)*2)  # quá TTL 48h
+    result=raw.sweep()  # config mặc định 48h
+    assert not (cfg.DATA_DIR/old).exists() and (cfg.DATA_DIR/fresh).exists()
+    assert result['removed']>=1 and result['pruned_manifest']>=1
+    manifest=(cfg.DATA_DIR/'raw/manifest.jsonl').read_text()
+    assert 'old-body' not in raw.read(fresh)  # sanity
+    assert '/old' not in manifest.replace('fresh','')
 
 
 def test_topdev_directory_reads_card_name_without_global_heading():

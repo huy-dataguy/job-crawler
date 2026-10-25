@@ -15,8 +15,17 @@ BASE_URL = "https://itviec.com/"
 LISTING_URL = os.environ.get("JC_ITVIEC_URL", BASE_URL + "it-jobs")
 TOPCV_URL = os.environ.get("JC_TOPCV_URL", "https://www.topcv.vn/tim-viec-lam-cong-nghe-thong-tin-cr257")
 
-MAX_PAGES_ITVIEC = int(os.environ.get("JC_MAX_PAGES_ITVIEC", "10"))
-MAX_PAGES_TOPCV = int(os.environ.get("JC_MAX_PAGES_TOPCV", "5"))
+# Mặc định = QUICK crawl (2 trang/nguồn) cho lượt 15 phút — job mới luôn nằm
+# đầu listing. Deep hằng ngày (run_deep.sh) override thành 50/20/40.
+MAX_PAGES_ITVIEC = int(os.environ.get("JC_MAX_PAGES_ITVIEC", "2"))
+MAX_PAGES_TOPCV = int(os.environ.get("JC_MAX_PAGES_TOPCV", "2"))
+# Lượt 15 phút chỉ quét trang đầu (job mới luôn nằm đầu listing, sort theo
+# ngày đăng); deep hằng ngày quét đủ MAX_PAGES_* để bắt trượt sâu.
+QUICK_PAGES_ITVIEC = int(os.environ.get("JC_QUICK_PAGES_ITVIEC", "2"))
+QUICK_PAGES_TOPCV = int(os.environ.get("JC_QUICK_PAGES_TOPCV", "2"))
+QUICK_PAGES_TOPDEV = int(os.environ.get("JC_QUICK_PAGES_TOPDEV", "2"))
+# Raw = bằng chứng điều tra ngắn hạn: nén gzip + xoá quá TTL sau khi đã vào SQLite.
+RAW_RETENTION_HOURS = float(os.environ.get("JC_RAW_RETENTION_HOURS", "48"))
 DELAY_BETWEEN_REQUESTS = float(os.environ.get("JC_DELAY", "2.0"))  # giây, lịch sự với nguồn
 CHROME_BIN = os.environ.get("JC_CHROME_BIN", "google-chrome")
 CHROME_FLUSH_SECONDS = os.environ.get(

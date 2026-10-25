@@ -27,7 +27,7 @@ from .http import fetch
 _S = requests.Session(impersonate="chrome124")
 
 LISTING_URL = "https://topdev.vn/jobs/search"
-MAX_PAGES = int(os.environ.get("JC_MAX_PAGES_TOPDEV", "10"))
+MAX_PAGES = int(os.environ.get("JC_MAX_PAGES_TOPDEV", "2"))
 
 # object job bắt đầu bằng id + title ngay cạnh nhau (bỏ object company/id khác)
 _JOB_START = re.compile(r'\{"id":\d+,"title":"')

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import config, details, relevance, store
+from . import config, details, raw, relevance, store
 
 
 def replay_jobs() -> dict:
@@ -20,7 +20,7 @@ def replay_jobs() -> dict:
                 if not observed:
                     raise ValueError("Raw artifact has no verification timestamp")
                 from datetime import datetime
-                parsed = details.parse_detail(path.read_text(), job, now=datetime.fromisoformat(observed))
+                parsed = details.parse_detail(raw.read(job['raw_artifact']), job, now=datetime.fromisoformat(observed))
                 parsed["detail_checked_at"] = job["detail_checked_at"]
                 merged = {**job, **parsed}
                 relevance.annotate(merged)
