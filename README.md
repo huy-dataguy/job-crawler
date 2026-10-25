@@ -15,12 +15,12 @@ maintains a 65k+ company directory, and serves it as a personal web app.
 
 <br/>
 
-<img src="docs/screenshot.png" alt="Săn Việc — job inbox with CV-match scoring" width="900" />
+<img src="docs/screenshot.png" alt="San Viec job inbox — CV-match scoring, role targeting, company filters" width="900" />
 
 <br/>
 
 **[Live app](https://job-crawler-theta.vercel.app)** (private, Google auth) ·
-**[Vận hành tiếng Việt](docs/operations.md)**
+**[Operations guide (Vietnamese)](docs/operations.md)**
 
 </div>
 
