@@ -2,7 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useLocation, useNavigate, useNavigationType, useSearchParams } from "react-router-dom";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import type { Filters } from "./api";
-import { fetchJobs, fetchMeta, fetchStats, fetchTrend, fetchHealth } from "./api";
+import {
+  DEFAULT_FILTERS, parseFilters, serializeFilters, companyInboxFilters,
+  fetchJobs, fetchMeta, fetchStats, fetchTrend, fetchHealth,
+} from "./api";
 import FilterBar from "./FilterBar";
 import JobTable from "./JobTable";
 import { TrendChart, ExperienceChart, CategoryChart, SalaryChart } from "./Charts";
@@ -19,16 +22,6 @@ declare global {
   interface Window { __searchTimer?: number }
 }
 
-// Inbox mặc định = đúng bài toán săn việc của Huy:
-// 4 hướng ứng tuyển (DE chính + Backend/Fullstack/DS) · ≤2 năm KN ·
-// còn mở · 14 ngày gần nhất · chưa xem · xếp theo độ khớp CV.
-const DEFAULT_FILTERS: Filters = {
-  q: "", source: "", category: "", exp: "2", tag: "", skill: "", level: "",
-  salary_min: 0, it_only: 1, since_hours: 336, sort: "auto", show_hidden: 0,
-  company_size: "", relevance_min: 0, mark: "unseen", company: "",
-  status: "open", city: "", work_mode: "", role: "de,backend,fullstack,ds",
-};
-
 const SORTS = [
   { v: "auto", label: "Khớp CV" },
   { v: "posted", label: "Mới đăng" },
@@ -38,26 +31,6 @@ const SORTS = [
 // Route: "/" Inbox · "/thong-ke" Thống kê · "/cong-ty" Công ty.
 // Bộ lọc + trang sống trong URL → refresh/back-forward giữ nguyên, chia sẻ
 // link được (vd /?role=de&city=Hà Nội). Chỉ ghi param khác default cho URL gọn.
-const NUM_KEYS = new Set(["salary_min", "it_only", "since_hours", "show_hidden", "relevance_min"]);
-
-function parseFilters(sp: URLSearchParams): { filters: Filters; page: number } {
-  const f = { ...DEFAULT_FILTERS };
-  sp.forEach((v, k) => {
-    if (k !== "page" && k in f) {
-      (f as Record<string, unknown>)[k] = NUM_KEYS.has(k) ? Number(v) : v;
-    }
-  });
-  return { filters: f, page: Math.max(1, Number(sp.get("page")) || 1) };
-}
-
-function serializeFilters(f: Filters, page: number): string {
-  const sp = new URLSearchParams();
-  for (const [k, v] of Object.entries(f)) {
-    if (v !== DEFAULT_FILTERS[k as keyof Filters]) sp.set(k, String(v));
-  }
-  if (page > 1) sp.set("page", String(page));
-  return sp.toString();
-}
 
 export default function App() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -129,7 +102,14 @@ export default function App() {
     setSearchInput(value);
     window.clearTimeout(window.__searchTimer);
     window.__searchTimer = window.setTimeout(() => {
-      setSearchParams(serializeFilters({ ...filters, q: value }, 1), { replace: true });
+      // Bắt đầu gõ tìm = tìm trên toàn bộ tin còn mở. Nếu giữ nguyên hàng đợi
+      // (4 hướng · ≤2 năm · chưa xem) thì tên công ty ngoài phạm vi sẽ ra 0.
+      const startingSearch = value.trim() !== "" && filters.q.trim() === "";
+      const next: Filters = startingSearch
+        ? { ...filters, q: value, role: "", exp: "", mark: "all", since_hours: 0,
+            relevance_min: 0, company: "", company_url: "" }
+        : { ...filters, q: value };
+      setSearchParams(serializeFilters(next, 1), { replace: true });
     }, 350);
   };
 
@@ -161,6 +141,9 @@ export default function App() {
 
   const total = jobsQ.data?.total ?? 0;
   const pages = Math.ceil(total / PAGE_SIZE);
+  const searchingAll = filters.q.trim() !== "" && filters.company === "" &&
+    filters.role === "" && filters.exp === "" && filters.mark === "all" &&
+    filters.since_hours === 0 && filters.relevance_min === 0;
 
   const today = new Date();
   const dateLine = `T${today.getDay() === 0 ? "CN" : today.getDay() + 1} · ${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}`;
@@ -211,7 +194,7 @@ export default function App() {
 
       {view === "companies" ? (
         <main className="max-w-[1120px] mx-auto px-4 md:px-6 pb-10">
-          <Companies city={filters.city} onFilterCompany={(c) => goInboxWith({ ...DEFAULT_FILTERS, city: filters.city, company: c.company, source: c.source, relevance_min: 0 })} />
+          <Companies city={filters.city} onFilterCompany={(c) => goInboxWith(companyInboxFilters(c, filters.city))} />
         </main>
       ) : view === "stats" ? (
         <main className="max-w-[1120px] mx-auto px-4 md:px-6 pb-10 space-y-5">
@@ -260,12 +243,23 @@ export default function App() {
             </select>
           </div>
 
+          {searchingAll && (
+            <div className="mt-2.5 flex items-center gap-2 flex-wrap text-[12px] text-slate">
+              <span>Đang tìm trên toàn bộ tin còn mở — không giới hạn hướng ứng tuyển, kinh nghiệm hay trạng thái đã xem.</span>
+              <button
+                onClick={() => goInboxWith({ ...DEFAULT_FILTERS, q: filters.q, city: filters.city, source: filters.source })}
+                className="px-2.5 py-1 rounded-full border border-line bg-white text-[11px] font-semibold text-slate hover:border-line-deep">
+                Chỉ tìm trong hàng đợi
+              </button>
+            </div>
+          )}
+
           <FilterBar filters={filters} setF={setF} meta={meta.data} stats={stats.data} />
 
           <div ref={listTopRef} className="scroll-mt-24 pt-5" />
           <div className="flex items-baseline justify-between mb-2.5">
             <h2 className="font-bold text-[17px]">
-              Hàng đợi apply
+              {filters.q.trim() ? "Kết quả tìm kiếm" : "Hàng đợi apply"}
               <span className="font-mono font-medium text-sm text-faint ml-2">{total}</span>
             </h2>
             {pages > 1 && (

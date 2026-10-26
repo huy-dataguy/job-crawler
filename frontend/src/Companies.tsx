@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import SectionHead from "./SectionHead";
 import type { HiringRole } from "./api";
-import { apiFetch, apiGet, downloadCompaniesCsv } from "./api";
+import { apiFetch, apiGet, downloadCompaniesCsv, markJob } from "./api";
 import { BUCKETS, BUCKET_COLOR } from "./company";
 
 type Company = {
@@ -41,6 +41,7 @@ type Company = {
 type JobLite = {
   source: string; source_id: string; title: string; url: string;
   salary: string; level: string; relevance: number | null; posted_at: string | null;
+  viewed: number; applied: number; starred: number; hidden: number;
 };
 
 type CompanyStats = {
@@ -245,7 +246,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             {companies.data.companies.map(c=>{
-              const key = `${c.source}-${c.company}`;
+              const key = coKey(c);
               const isExp = openCo===key;
               return (
               <Fragment key={key}>
@@ -280,9 +281,9 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
                     </div>
                   </div>
                   <div className="flex gap-1.5 pt-1 border-t border-line" onClick={e => e.stopPropagation()}>
-                    <button onClick={()=>onFilterCompany?.(c)}
-                      className="flex-1 px-3 py-1.5 rounded-[10px] bg-peri text-white text-xs font-bold border border-ink shadow-hard-sm press-hard">
-                      Xem {c.job_count} việc →
+                    <button onClick={()=>onFilterCompany?.(c)} disabled={!c.job_count}
+                      className="flex-1 px-3 py-1.5 rounded-[10px] bg-peri text-white text-xs font-bold border border-ink shadow-hard-sm press-hard disabled:opacity-40 disabled:cursor-not-allowed">
+                      {c.job_count ? `Xem ${c.job_count} việc →` : "Chưa có việc còn mở"}
                     </button>
                     {c.detail_url && <a href={c.detail_url} target="_blank" rel="noreferrer"
                       className="px-3 py-1.5 rounded-[10px] bg-white border border-line text-xs font-medium text-slate hover:border-peri hover:text-peri">Mở nguồn ↗</a>}
@@ -317,16 +318,29 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
 }
 
 function CompanyDetail({ company: c, city, onFilterCompany }: { company: Company; city: string; onFilterCompany?: (c: Company) => void }) {
+  const qc = useQueryClient();
   const jobs = useQuery({
-    queryKey: ["company-jobs", c.source, c.company, city],
+    queryKey: ["company-jobs", c.source, c.company, c.detail_url, city],
     queryFn: async () => {
-      const p = new URLSearchParams({ company: c.company, source: c.source, city, limit: "10", sort: "relevance", relevance_min: "0" });
+      const p = new URLSearchParams({
+        company: c.company, company_url: c.detail_url || "", source: c.source, city,
+        limit: "10", sort: "relevance", relevance_min: "0", since_hours: "0",
+        show_hidden: "1",
+      });
       const r = await apiFetch(`/api/jobs?${p.toString()}`);
       if (!r.ok) throw new Error(`${r.status}`);
       return (await r.json()) as { total: number; jobs: JobLite[] };
     },
     staleTime: 60_000,
   });
+  const mark = async (j: JobLite, patch: { viewed?: number; applied?: number; starred?: number }) => {
+    await markJob(j.source, j.source_id, patch);
+    qc.invalidateQueries({ queryKey: ["company-jobs", c.source, c.company, c.detail_url, city] });
+  };
+  const openJob = (j: JobLite, apply = false) => {
+    window.open(j.url, "_blank", "noopener,noreferrer");
+    void mark(j, apply ? { viewed: 1, applied: 1 } : { viewed: 1 });
+  };
   return (
     <div className="space-y-3">
       <div className="flex gap-2 flex-wrap text-xs">
@@ -350,10 +364,11 @@ function CompanyDetail({ company: c, city, onFilterCompany }: { company: Company
       <div>
         <div className="flex items-baseline justify-between mb-1.5">
           <h4 className="font-bold text-sm">Việc đang tuyển <span className="font-mono text-xs text-faint">{jobs.data?.total ?? ""}</span></h4>
-          <button onClick={()=>onFilterCompany?.(c)} className="px-2.5 py-1 rounded-full bg-peri text-white text-xs font-semibold hover:bg-peri-deep">xem trong Inbox →</button>
+          <button onClick={()=>onFilterCompany?.(c)} disabled={!c.job_count}
+            className="px-2.5 py-1 rounded-full bg-peri text-white text-xs font-semibold hover:bg-peri-deep disabled:opacity-40 disabled:cursor-not-allowed">xem trong Inbox →</button>
         </div>
         {jobs.isPending ? <div className="font-mono text-xs text-faint">đang tải…</div> :
-         !jobs.data?.jobs.length ? <p className="text-sm text-faint">Chưa có tin trong 14 ngày gần nhất được xác nhận còn mở cho công ty này.</p> : (
+         !jobs.data?.jobs.length ? <p className="text-sm text-faint">Chưa có tin còn mở cho công ty này.</p> : (
           <ul className="divide-y divide-line rounded-xl border border-line overflow-hidden bg-white">
             {jobs.data.jobs.map(j=>(
               <li key={`${j.source}-${j.source_id}`} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-paper/70">
@@ -361,6 +376,17 @@ function CompanyDetail({ company: c, city, onFilterCompany }: { company: Company
                 {!!j.relevance && j.relevance >= 40 && <span className={`px-1.5 rounded-md text-[10px] font-bold shrink-0 ${j.relevance >= 70 ? "bg-mint-soft text-mint" : "bg-peri-soft text-peri-deep"}`}>{j.relevance}%</span>}
                 {j.salary && j.salary !== "N/A" && <span className="font-mono text-xs text-amber shrink-0 hidden sm:inline">{j.salary}</span>}
                 {j.level && <span className="text-xs text-faint shrink-0 hidden md:inline">{j.level}</span>}
+                <span className="flex items-center gap-1 shrink-0">
+                  <button onClick={()=>openJob(j)} title="Mở tin và đánh dấu đã xem"
+                    className="px-2 py-1 rounded-md border border-line text-[11px] text-slate hover:border-peri hover:text-peri">Xem</button>
+                  <button onClick={()=>openJob(j, true)} title="Mở tin và đánh dấu đã apply"
+                    className="px-2 py-1 rounded-md bg-peri text-white text-[11px] font-semibold hover:bg-peri-deep">Apply</button>
+                  <button onClick={()=>void mark(j, { starred: j.starred ? 0 : 1 })} aria-pressed={!!j.starred}
+                    title={j.starred ? "Bỏ sao" : "Sao việc này"}
+                    className={`px-2 py-1 rounded-md border text-[11px] ${j.starred ? "bg-amber-soft border-amber text-amber" : "border-line text-faint hover:border-line-deep"}`}>
+                    {j.starred ? "★" : "☆"}
+                  </button>
+                </span>
               </li>
             ))}
           </ul>

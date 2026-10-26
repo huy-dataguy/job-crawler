@@ -5,7 +5,7 @@ Cùng contract với dashboard/main.py local để frontend dùng nguyên: mọi
 - Các hàm Python SQLite (province_matches/role_matches/open_condition) đã được
   sync script precompute thành cột: provinces text[], roles text[],
   effective_status/effective_open → ở đây chỉ lọc bằng index.
-- Tìm từ khóa dùng ILIKE trên cột search (đủ cho quy mô ~vài nghìn job).
+- Tìm từ khóa bỏ dấu trên cột search (đủ cho quy mô ~vài nghìn job).
 - Kết nối pooler Supabase qua env DATABASE_URL (IPv4-friendly cho serverless).
 - Bảo mật: mọi request phải mang Bearer token do Supabase Auth cấp và đúng
   ALLOWED_EMAIL — xem require_user bên dưới. Đây là lớp enforce thật sự;
@@ -20,13 +20,16 @@ import csv
 import io
 import json
 import os
+import threading
 import time
+import unicodedata
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
@@ -107,6 +110,29 @@ LEVELS = ["intern", "fresher", "junior", "middle", "senior", "lead", "manager"]
 COMPANY_BUCKETS = ["<50", "50-100", "101-150", "151-300", "301-1000", "1000+"]
 PROVINCE_PRIORITY = {"Hồ Chí Minh": 0, "Hà Nội": 1, "Đà Nẵng": 2}
 
+# Tìm kiếm không dấu: FTS SQLite bỏ dấu tự động, còn Postgres thì không. Chuẩn
+# hóa cả cột lẫn từ khóa để "cong ty co phan" khớp "CÔNG TY CỔ PHẦN".
+_FOLD_FROM = (
+    "àáảãạăằắẳẵặâầấẩẫậ"
+    "èéẻẽẹêềếểễệ"
+    "ìíỉĩị"
+    "òóỏõọôồốổỗộơờớởỡợ"
+    "ùúủũụưừứửữự"
+    "ỳýỷỹỵ"
+    "đ"
+)
+_FOLD_TO = "a" * 17 + "e" * 11 + "i" * 5 + "o" * 17 + "u" * 11 + "y" * 5 + "d"
+
+
+def _fold_sql(column: str) -> str:
+    return f"translate(lower(COALESCE({column}, '')), '{_FOLD_FROM}', '{_FOLD_TO}')"
+
+
+def _fold_text(text: str) -> str:
+    text = unicodedata.normalize("NFD", (text or "").lower().replace("đ", "d"))
+    return "".join(c for c in text if unicodedata.category(c) != "Mn")
+
+
 MARK_CONDS = {
     "unseen": "COALESCE(m.viewed,0)=0 AND COALESCE(m.applied,0)=0 AND COALESCE(m.hidden,0)=0",
     "viewed": "COALESCE(m.viewed,0)=1 AND COALESCE(m.applied,0)=0 AND COALESCE(m.hidden,0)=0",
@@ -123,14 +149,92 @@ class _DictConn(psycopg2.extensions.connection):
         return super().cursor(*args, **kwargs)
 
 
+_POOL_LOCK = threading.Lock()
+_POOLS: dict[str, psycopg2.pool.ThreadedConnectionPool] = {}
+_LAST_USED: dict[int, float] = {}
+_IDLE_CHECK = 120.0
+
+
+def _pool_for(url: str) -> psycopg2.pool.ThreadedConnectionPool:
+    pool = _POOLS.get(url)
+    if pool is None:
+        with _POOL_LOCK:
+            pool = _POOLS.get(url)
+            if pool is None:
+                pool = psycopg2.pool.ThreadedConnectionPool(
+                    1, 8, url, connect_timeout=10,
+                    options="-c statement_timeout=20000",
+                    connection_factory=_DictConn)
+                _POOLS[url] = pool
+    return pool
+
+
+class _PooledConn:
+    def __init__(self, pool, raw):
+        self._pool = pool
+        self._raw = raw
+
+    def __getattr__(self, name):
+        return getattr(self._raw, name)
+
+    def close(self):
+        raw = self._raw
+        if raw is None:
+            return
+        self._raw = None
+        if not raw.autocommit:
+            try:
+                raw.rollback()
+            except Exception:
+                try:
+                    raw.close()
+                except Exception:
+                    pass
+                return
+        _LAST_USED[id(raw)] = time.monotonic()
+        try:
+            self._pool.putconn(raw)
+        except Exception:
+            _LAST_USED.pop(id(raw), None)
+            try:
+                raw.close()
+            except Exception:
+                pass
+
+
+def _valid_conn(raw) -> bool:
+    last = _LAST_USED.get(id(raw))
+    if last is None or time.monotonic() - last < _IDLE_CHECK:
+        return True
+    try:
+        with raw.cursor() as cur:
+            cur.execute("SELECT 1")
+        _LAST_USED[id(raw)] = time.monotonic()
+        return True
+    except Exception:
+        return False
+
+
 def db():
     url = os.environ.get("DATABASE_URL") or os.environ.get("SUPABASE_DB_URL")
     if not url:
         raise HTTPException(503, "Thiếu DATABASE_URL")
-    conn = psycopg2.connect(url, connect_timeout=10,
-                            options="-c statement_timeout=20000",
-                            connection_factory=_DictConn)
-    return conn
+    pool = _pool_for(url)
+    raw = pool.getconn()
+    raw.autocommit = True
+    if not _valid_conn(raw):
+        _LAST_USED.pop(id(raw), None)
+        try:
+            raw.close()
+        except Exception:
+            pass
+        try:
+            pool.putconn(raw, close=True)
+        except Exception:
+            pass
+        raw = pool.getconn()
+        raw.autocommit = True
+    return _PooledConn(pool, raw)
 
 
 def _clean(v):
@@ -145,7 +249,7 @@ def rowjson(r):
 
 def _filtered(q="", source="", category="", exp="", tag="", skill="", level="",
               salary_min=0.0, it_only=1, since_hours=336, company_size="",
-              relevance_min=0, company="", status="open", city="",
+              relevance_min=0, company="", company_url="", status="open", city="",
               work_mode="", role=""):
     """Build WHERE chung cho jobs/meta/stats/trend — mirror dashboard local."""
     where, params = ["1=1"], []
@@ -175,7 +279,14 @@ def _filtered(q="", source="", category="", exp="", tag="", skill="", level="",
     if source:
         where.append("jobs.source=%s"); params.append(source)
     if company:
-        where.append("jobs.company=%s"); params.append(company)
+        if company_url:
+            # Cùng một công ty có thể khớp qua tên hoặc URL hồ sơ nguồn.
+            where.append("(jobs.company=%s OR jobs.company_url=%s)")
+            params.extend([company, company_url])
+        else:
+            where.append("jobs.company=%s"); params.append(company)
+    elif company_url:
+        where.append("jobs.company_url=%s"); params.append(company_url)
     if category:
         where.append("jobs.category=%s"); params.append(category)
     if exp:
@@ -193,7 +304,10 @@ def _filtered(q="", source="", category="", exp="", tag="", skill="", level="",
     if tag:
         where.append("jobs.tags @> %s::jsonb"); params.append(json.dumps([tag]))
     for term in [t for t in (q or "").split() if t.strip()][:8]:
-        where.append("jobs.search ILIKE %s"); params.append(f"%{term}%")
+        folded = _fold_text(term)
+        if folded:
+            where.append(_fold_sql("jobs.search") + " LIKE %s")
+            params.append(f"%{folded}%")
     if since_hours:
         where.append("jobs.posted_at >= now() - make_interval(hours => %s)"
                      " AND jobs.posted_at <= now()")
@@ -201,11 +315,10 @@ def _filtered(q="", source="", category="", exp="", tag="", skill="", level="",
         if status == "open":
             where.append("jobs.date_source='structured'")
     if company_size:
-        where.append("(EXISTS (SELECT 1 FROM company_directory d WHERE d.source=jobs.source"
-                     " AND d.detail_url=jobs.company_url AND d.bucket=%s)"
-                     " OR EXISTS (SELECT 1 FROM company_directory d WHERE d.source=jobs.source"
-                     " AND d.name=jobs.company AND d.bucket=%s))")
-        params.extend([company_size, company_size])
+        where.append("EXISTS (SELECT 1 FROM company_directory d WHERE d.source=jobs.source"
+                     " AND (d.detail_url=jobs.company_url OR d.name=jobs.company)"
+                     " AND d.bucket=%s)")
+        params.append(company_size)
     return " AND ".join(where), params
 
 
@@ -223,6 +336,7 @@ FROM jobs LEFT JOIN job_marks m ON m.source=jobs.source AND m.source_id=jobs.sou
 
 
 def _attach_company(cur, rows):
+    """Gắn hồ sơ quy mô cho trang hiện tại — 1 truy vấn/source thay vì 2."""
     if not rows:
         return rows
     urls, names = {}, {}
@@ -231,16 +345,22 @@ def _attach_company(cur, rows):
             urls.setdefault(r["source"], set()).add(r["company_url"])
         if r.get("company"):
             names.setdefault(r["source"], set()).add(r["company"])
-    by = {}
-    for col, keys in (("detail_url", urls), ("name", names)):
-        for src, vals in keys.items():
-            cur.execute(f"SELECT source, {col} AS k, size_raw, bucket, num_employees"
-                        f" FROM company_directory WHERE source=%s AND {col} = ANY(%s)"
-                        f" ORDER BY enriched_at DESC NULLS LAST", (src, list(vals)))
-            for d in cur.fetchall():
-                by.setdefault((d["source"], d["k"]), d)
+    by_url, by_name = {}, {}
+    for src in set(urls) | set(names):
+        cur.execute(
+            "SELECT source, name, detail_url, size_raw, bucket, num_employees"
+            " FROM company_directory WHERE source=%s"
+            " AND (detail_url = ANY(%s) OR name = ANY(%s))"
+            " ORDER BY enriched_at DESC NULLS LAST",
+            (src, list(urls.get(src, [])), list(names.get(src, []))))
+        for d in cur.fetchall():
+            if d["detail_url"]:
+                by_url.setdefault((d["source"], d["detail_url"]), d)
+            if d["name"]:
+                by_name.setdefault((d["source"], d["name"]), d)
     for r in rows:
-        d = by.get((r["source"], r.get("company_url"))) or by.get((r["source"], r.get("company")))
+        d = (by_url.get((r["source"], r.get("company_url")))
+             or by_name.get((r["source"], r.get("company"))))
         r["company_size_raw"] = d["size_raw"] if d else None
         r["company_bucket"] = d["bucket"] if d else None
         r["company_num_employees"] = d["num_employees"] if d else None
@@ -250,14 +370,16 @@ def _attach_company(cur, rows):
 @app.get("/api/jobs")
 def api_jobs(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0),
              source="", q="", category="", exp="", tag="", skill="", level="",
-             salary_min=0.0, it_only=1, show_hidden=0, company_size="",
-             since_hours=336, sort="auto", relevance_min=0, mark="all",
-             company="", status="open", city="", work_mode="", role=""):
+             salary_min: float = 0.0, it_only: int = 1, show_hidden: int = 0,
+             company_size="", since_hours: int = 336, sort="auto",
+             relevance_min: int = 0, mark="all",
+             company="", company_url="", status="open", city="", work_mode="", role=""):
     where, params = _filtered(q=q, source=source, category=category, exp=exp,
                               tag=tag, skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=since_hours,
                               company_size=company_size, relevance_min=relevance_min,
-                              company=company, status=status, city=city,
+                              company=company, company_url=company_url,
+                              status=status, city=city,
                               work_mode=work_mode, role=role)
     if mark in MARK_CONDS:
         where += f" AND {MARK_CONDS[mark]}"
@@ -285,37 +407,45 @@ def api_jobs(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)
 
 @app.get("/api/meta")
 def api_meta(source="", q="", category="", exp="", tag="", skill="", level="",
-             salary_min=0.0, it_only=1, since_hours=336, relevance_min=0,
-             company="", status="open", city="", work_mode="", company_size="", role=""):
+             salary_min: float = 0.0, it_only: int = 1, since_hours: int = 336,
+             relevance_min: int = 0, company="", company_url="", status="open",
+             city="", work_mode="", company_size="", role=""):
     where, params = _filtered(q=q, source=source, category=category, exp=exp, tag=tag,
                               skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=since_hours,
                               company_size=company_size, relevance_min=relevance_min,
-                              company=company, status=status, city=city,
-                              work_mode=work_mode, role=role)
+                              company=company, company_url=company_url, status=status,
+                              city=city, work_mode=work_mode, role=role)
     where_no_role, params_no_role = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
         company_size=company_size, relevance_min=relevance_min, company=company,
-        status=status, city=city, work_mode=work_mode, role="")
+        company_url=company_url, status=status, city=city, work_mode=work_mode, role="")
     conn = db()
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT DISTINCT source FROM jobs ORDER BY 1")
             out = {"sources": [r["source"] for r in cur.fetchall()]}
-            cur.execute(f"SELECT category name, count(*) n FROM jobs WHERE {where}"
-                        " AND category != '' GROUP BY 1 ORDER BY n DESC LIMIT 30", params)
-            out["categories"] = [dict(r) for r in cur.fetchall()]
-            cur.execute("SELECT CASE WHEN exp_min<=0 THEN '0' WHEN exp_min>=5 THEN '5+'"
-                        " ELSE exp_min::int::text END v, count(*) n FROM jobs"
-                        f" WHERE {where} AND exp_min IS NOT NULL GROUP BY 1", params)
-            exp_rows = {r["v"]: r["n"] for r in cur.fetchall()}
+            cur.execute(f"""WITH j AS (SELECT category, exp_min, level FROM jobs
+                           WHERE {where})
+                SELECT 'category' kind, category k, count(*) n FROM j
+                  WHERE category != '' GROUP BY 2
+                UNION ALL
+                SELECT 'experience', CASE WHEN exp_min<=0 THEN '0'
+                       WHEN exp_min>=5 THEN '5+' ELSE exp_min::int::text END,
+                       count(*) FROM j WHERE exp_min IS NOT NULL GROUP BY 2
+                UNION ALL
+                SELECT 'level', level, count(*) FROM j
+                  WHERE level IS NOT NULL AND level != '' GROUP BY 2""", params)
+            meta_rows = cur.fetchall()
+            out["categories"] = [{"name": r["k"], "n": r["n"]}
+                                 for r in sorted((r for r in meta_rows if r["kind"] == "category"),
+                                                 key=lambda r: -r["n"])[:30]]
+            exp_rows = {r["k"]: r["n"] for r in meta_rows if r["kind"] == "experience"}
             out["experience"] = [{"value": v, "name": name,
                                   "n": exp_rows.get("5+" if v == "5" else v, 0)}
                                  for v, name, _y in EXP_BUCKETS]
-            cur.execute(f"SELECT level, count(*) n FROM jobs WHERE {where}"
-                        " AND level IS NOT NULL AND level != '' GROUP BY 1", params)
-            lv = {r["level"]: r["n"] for r in cur.fetchall()}
+            lv = {r["k"]: r["n"] for r in meta_rows if r["kind"] == "level"}
             out["levels"] = [{"value": x, "n": lv.get(x, 0)} for x in LEVELS]
             cur.execute(f"SELECT skills, tags FROM jobs WHERE {where} LIMIT 5000", params)
             skills, tags = {}, {}
@@ -330,20 +460,27 @@ def api_meta(source="", q="", category="", exp="", tag="", skill="", level="",
                                  sorted(skills.items(), key=lambda kv: -kv[1])[:40]]
             out["top_tags"] = [{"name": k, "n": v} for k, v in
                                sorted(tags.items(), key=lambda kv: -kv[1])[:40]]
-            out["role_counts"] = {}
-            for slug in ROLE_SLUGS:
-                cur.execute(f"SELECT count(*) n FROM jobs WHERE {where_no_role}"
-                            " AND roles && %s::text[]", params_no_role + [[slug]])
-                out["role_counts"][slug] = cur.fetchone()["n"]
-            out["company_sizes"] = []
-            for b in COMPANY_BUCKETS:
-                cur.execute(f"SELECT count(*) n FROM jobs WHERE {where_no_role}"
-                            " AND (EXISTS (SELECT 1 FROM company_directory d"
-                            " WHERE d.source=jobs.source AND d.detail_url=jobs.company_url"
-                            " AND d.bucket=%s) OR EXISTS (SELECT 1 FROM company_directory d"
-                            " WHERE d.source=jobs.source AND d.name=jobs.company"
-                            " AND d.bucket=%s))", params_no_role + [b, b])
-                out["company_sizes"].append({"bucket": b, "n": cur.fetchone()["n"]})
+            role_cols = ", ".join(
+                f"count(*) FILTER (WHERE roles && %s::text[]) AS r{i}"
+                for i in range(len(ROLE_SLUGS)))
+            cur.execute(f"SELECT {role_cols} FROM jobs WHERE {where_no_role}",
+                        [[slug] for slug in ROLE_SLUGS] + params_no_role)
+            rc = cur.fetchone()
+            out["role_counts"] = {slug: rc[f"r{i}"]
+                                  for i, slug in enumerate(ROLE_SLUGS)}
+            size_cols = ", ".join(
+                f"count(*) FILTER (WHERE bucket=%s) AS b{i}"
+                for i in range(len(COMPANY_BUCKETS)))
+            cur.execute(f"""SELECT {size_cols}
+                FROM (SELECT (SELECT d.bucket FROM company_directory d
+                              WHERE d.source=jobs.source
+                                AND (d.detail_url=jobs.company_url OR d.name=jobs.company)
+                              LIMIT 1) bucket
+                      FROM jobs WHERE {where_no_role}) x""",
+                        list(COMPANY_BUCKETS) + params_no_role)
+            size_row = cur.fetchone()
+            out["company_sizes"] = [{"bucket": b, "n": size_row[f"b{i}"]}
+                                    for i, b in enumerate(COMPANY_BUCKETS)]
             out["it_count"] = 0
             out["non_it_count"] = 0
             cur.execute("SELECT count(*) FILTER (WHERE is_it=1) a,"
@@ -357,14 +494,15 @@ def api_meta(source="", q="", category="", exp="", tag="", skill="", level="",
 
 @app.get("/api/stats")
 def api_stats(source="", q="", category="", exp="", tag="", skill="", level="",
-              salary_min=0.0, it_only=1, since_hours=336, relevance_min=0,
-              company="", status="open", city="", work_mode="", company_size="", role=""):
+              salary_min: float = 0.0, it_only: int = 1, since_hours: int = 336,
+              relevance_min: int = 0, company="", company_url="", status="open",
+              city="", work_mode="", company_size="", role=""):
     where, params = _filtered(q=q, source=source, category=category, exp=exp, tag=tag,
                               skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=since_hours,
                               company_size=company_size, relevance_min=relevance_min,
-                              company=company, status=status, city=city,
-                              work_mode=work_mode, role=role)
+                              company=company, company_url=company_url, status=status,
+                              city=city, work_mode=work_mode, role=role)
     conn = db()
     try:
         with conn.cursor() as cur:
@@ -384,12 +522,14 @@ def api_stats(source="", q="", category="", exp="", tag="", skill="", level="",
                         " AND category != '' GROUP BY 1 ORDER BY n DESC LIMIT 12", params)
             cats = [dict(r) for r in cur.fetchall()]
             out["top_categories"] = out["itviec_top_categories"] = cats
-            out["queue"] = {}
-            for k, cond in MARK_CONDS.items():
-                cur.execute("SELECT count(*) n FROM jobs LEFT JOIN job_marks m"
-                            " ON m.source=jobs.source AND m.source_id=jobs.source_id"
-                            f" WHERE {where} AND {cond}", params)
-                out["queue"][k] = cur.fetchone()["n"]
+            queue_cols = ", ".join(
+                f"count(*) FILTER (WHERE {cond}) AS {k}"
+                for k, cond in MARK_CONDS.items())
+            cur.execute("SELECT " + queue_cols + " FROM jobs"
+                        " LEFT JOIN job_marks m"
+                        " ON m.source=jobs.source AND m.source_id=jobs.source_id"
+                        f" WHERE {where}", params)
+            out["queue"] = dict(cur.fetchone())
         return JSONResponse(out)
     finally:
         conn.close()
@@ -399,13 +539,15 @@ def api_stats(source="", q="", category="", exp="", tag="", skill="", level="",
 def api_trend(days: int = Query(14, ge=1, le=60), q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
               level: str = "", salary_min: float = 0, it_only: int = 1,
-              relevance_min: int = 0, company: str = "", status: str = "open",
-              city: str = "", work_mode: str = "", company_size: str = "", role: str = ""):
+              relevance_min: int = 0, company: str = "", company_url: str = "",
+              status: str = "open", city: str = "", work_mode: str = "",
+              company_size: str = "", role: str = ""):
     """Trend việc mới/ngày — tôn trọng filter hiện tại (trừ since_hours)."""
     where, params = _filtered(q=q, source=source, category=category, exp=exp, tag=tag,
                               skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=0, company_size=company_size,
-                              relevance_min=relevance_min, company=company, status=status,
+                              relevance_min=relevance_min, company=company,
+                              company_url=company_url, status=status,
                               city=city, work_mode=work_mode, role=role)
     conn = db()
     try:
@@ -505,12 +647,15 @@ def api_health():
                         "   AND posted_at <= now()) recent_open,"
                         " (SELECT count(*) FROM company_directory) company_profiles FROM jobs")
             counts = dict(cur.fetchone())
+            run_sources = ("itviec", "topcv", "topdev", "companies")
+            cur.execute("SELECT DISTINCT ON (source) source, status, finished_at, note"
+                        " FROM crawl_runs WHERE source = ANY(%s)"
+                        " AND finished_at IS NOT NULL"
+                        " ORDER BY source, id DESC", (list(run_sources),))
+            runs = {r["source"]: r for r in cur.fetchall()}
             sources = []
-            for src in ("itviec", "topcv", "topdev", "companies"):
-                cur.execute("SELECT source, status, finished_at, note FROM crawl_runs"
-                            " WHERE source=%s AND finished_at IS NOT NULL"
-                            " ORDER BY id DESC LIMIT 1", (src,))
-                r = cur.fetchone()
+            for src in run_sources:
+                r = runs.get(src)
                 item = dict(r) if r else {"source": src, "status": "never_run"}
                 item["healthy"] = bool(r and r["status"] in ("ok", "partial")
                                        and r["finished_at"]
@@ -537,18 +682,20 @@ def _company_where(q="", source="", bucket="", hiring=0, it_only=0, city="",
     if bucket:
         where.append("d.bucket=%s"); params.append(bucket)
     if q:
-        where.append("(d.name ILIKE %s OR d.industry ILIKE %s OR d.description ILIKE %s)")
-        params.extend([f"%{q}%"] * 3)
+        folded = _fold_text(q)
+        where.append(f"({_fold_sql('d.name')} LIKE %s OR {_fold_sql('d.slug')} LIKE %s"
+                     f" OR {_fold_sql('d.industry')} LIKE %s)")
+        params.extend([f"%{folded}%"] * 3)
     if it_only:
         where.append("d.it_status IN ('technology','it_department')")
     if city:
         if city == "__unknown__":
-            where.append("COALESCE(jc.n,0)+COALESCE(jn.n,0) = 0")
+            where.append("COALESCE(jc.n, jn.n, 0) = 0")
         else:
-            where.append("(%s = ANY(d.provinces) OR COALESCE(jc.n,0)+COALESCE(jn.n,0) > 0)")
+            where.append("(%s = ANY(d.provinces) OR COALESCE(jc.n, jn.n, 0) > 0)")
             params.append(city)
     if hiring:
-        where.append("COALESCE(jc.n,0)+COALESCE(jn.n,0) > 0")
+        where.append("COALESCE(jc.n, jn.n, 0) > 0")
     selected = [f for f in (missing_fields or "").split(",") if f]
     if selected:
         cols = {"size": "size_raw", "industry": "industry", "website": "website",
@@ -562,15 +709,24 @@ def _company_where(q="", source="", bucket="", hiring=0, it_only=0, city="",
 
 
 _JOBS_CTES = """WITH jc AS (SELECT source, company_url k, count(*) n FROM jobs
-                WHERE effective_status='open' AND company_url IS NOT NULL {city} GROUP BY 1,2),
-     jn AS (SELECT source, company k, count(*) n, array_agg(DISTINCT category) cats,
-                   array_agg(DISTINCT r) roless
-            FROM jobs, unnest(roles) r
-            WHERE effective_status='open' AND company IS NOT NULL {city} GROUP BY 1,2)"""
+                WHERE effective_status='open' AND is_it=1
+                  AND company_url IS NOT NULL {city} GROUP BY 1,2),
+     jn AS (SELECT jobs.source, jobs.company k, count(DISTINCT jobs.source_id) n,
+                   array_agg(DISTINCT r) FILTER (WHERE r IS NOT NULL) roless
+            FROM jobs LEFT JOIN LATERAL unnest(roles) r ON true
+            WHERE effective_status='open' AND is_it=1
+              AND company IS NOT NULL {city} GROUP BY 1,2),
+     jcat AS (SELECT source, company k, jsonb_object_agg(category, n) cats
+              FROM (SELECT source, company, category, count(*) n FROM jobs
+                    WHERE effective_status='open' AND is_it=1
+                      AND company IS NOT NULL {city}
+                      AND category IS NOT NULL AND category != ''
+                    GROUP BY 1,2,3) x GROUP BY 1,2)"""
 
 
 @app.get("/api/companies")
-def api_companies(q="", source="", bucket="", hiring=0, it_only=0, city="",
+def api_companies(q="", source="", bucket="", hiring: int = 0,
+                  it_only: int = 0, city="",
                   missing_fields="", missing_mode="all",
                   limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)):
     where, params = _company_where(q, source, bucket, hiring, it_only, city,
@@ -581,23 +737,25 @@ def api_companies(q="", source="", bucket="", hiring=0, it_only=0, city="",
     conn = db()
     try:
         with conn.cursor() as cur:
-            cur.execute(ctes + f" SELECT count(*) FROM company_directory d"
-                        f" LEFT JOIN jc ON jc.source=d.source AND jc.k=d.detail_url"
-                        f" LEFT JOIN jn ON jn.source=d.source AND jn.k=d.name"
-                        f" WHERE {where}", city_params + city_params + params)
-            total = cur.fetchone()["count"]
-            cur.execute(ctes + f"""SELECT d.*, COALESCE(jc.n,0)+COALESCE(jn.n,0) job_count,
-                           jn.cats, jn.roless
+            cur.execute(ctes + f"""SELECT d.*, COALESCE(jc.n, jn.n, 0) job_count,
+                           jcat.cats, jn.roless, count(*) OVER() AS total_count
                     FROM company_directory d
                     LEFT JOIN jc ON jc.source=d.source AND jc.k=d.detail_url
                     LEFT JOIN jn ON jn.source=d.source AND jn.k=d.name
+                    LEFT JOIN jcat ON jcat.source=d.source AND jcat.k=d.name
                     WHERE {where}
                     ORDER BY job_count DESC, (d.it_status!='unknown') DESC, d.name
                     LIMIT %s OFFSET %s""",
-                        city_params + city_params + params + [limit, offset])
-            companies = []
-            for r in cur.fetchall():
-                companies.append(_company_row(r))
+                        city_params * 3 + params + [limit, offset])
+            rows = cur.fetchall()
+            total = rows[0]["total_count"] if rows else 0
+            if not rows and offset:
+                cur.execute(ctes + f" SELECT count(*) FROM company_directory d"
+                            f" LEFT JOIN jc ON jc.source=d.source AND jc.k=d.detail_url"
+                            f" LEFT JOIN jn ON jn.source=d.source AND jn.k=d.name"
+                            f" WHERE {where}", city_params * 3 + params)
+                total = cur.fetchone()["count"]
+            companies = [_company_row(r) for r in rows]
         return JSONResponse({"total": total, "companies": companies,
                              "count_semantics": "source profiles; may overlap across sources"})
     finally:
@@ -606,14 +764,12 @@ def api_companies(q="", source="", bucket="", hiring=0, it_only=0, city="",
 
 def _company_row(r):
     out = rowjson(r)
+    out.pop("total_count", None)
     out["company"] = out.get("name")
     out["company_slug"] = out.get("slug")
     out["fetched_at"] = out.get("enriched_at")
-    cats = out.pop("cats", None) or []
-    counts = {}
-    for c in cats:
-        if c:
-            counts[c] = counts.get(c, 0) + 1
+    cats = out.pop("cats", None) or {}
+    counts = {c: n for c, n in cats.items() if c} if isinstance(cats, dict) else {}
     out["hiring_roles"] = [{"name": k, "n": v} for k, v in
                            sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:3]]
     out["hiring_role_tags"] = sorted({x for x in (out.pop("roless", None) or [])
@@ -623,7 +779,8 @@ def _company_row(r):
 
 
 @app.get("/api/company-stats")
-def api_company_stats(q="", source="", bucket="", hiring=0, it_only=0, city="",
+def api_company_stats(q="", source="", bucket="", hiring: int = 0,
+                      it_only: int = 0, city="",
                       missing_fields="", missing_mode="all"):
     where, params = _company_where(q, source, bucket, hiring, it_only, city,
                                    missing_fields, missing_mode)
@@ -637,40 +794,41 @@ def api_company_stats(q="", source="", bucket="", hiring=0, it_only=0, city="",
                     f" LEFT JOIN jc ON jc.source=d.source AND jc.k=d.detail_url"
                     f" LEFT JOIN jn ON jn.source=d.source AND jn.k=d.name"
                     f" WHERE {where}")
+            missing = {f: col for f, col in (("size", "size_raw"),
+                                              ("industry", "industry"),
+                                              ("website", "website"),
+                                              ("address", "address"),
+                                              ("description", "description"))}
+            missing_cols = ", ".join(
+                f"count(*) FILTER (WHERE COALESCE(LOWER(TRIM(d.{col})), '')"
+                f" IN {_CO_EMPTY}) AS missing_{f}"
+                for f, col in missing.items())
             cur.execute(ctes + f"SELECT count(*) total,"
                         " count(*) FILTER (WHERE bucket IS NOT NULL) enriched,"
                         " count(*) FILTER (WHERE COALESCE(website,'') NOT IN " + _CO_EMPTY + ") websites,"
                         " count(*) FILTER (WHERE COALESCE(address,'') NOT IN " + _CO_EMPTY + ") addresses,"
-                        " count(*) FILTER (WHERE it_status!='unknown') it_profiles" + base,
-                        city_params + city_params + params)
+                        " count(*) FILTER (WHERE it_status!='unknown') it_profiles,"
+                        " count(*) FILTER (WHERE COALESCE(jc.n, jn.n, 0) > 0) hiring,"
+                        + missing_cols + base,
+                        city_params * 3 + params)
             result = dict(cur.fetchone())
-            cur.execute(ctes + "SELECT count(*) h" + base
-                        + " AND COALESCE(jc.n,0)+COALESCE(jn.n,0) > 0",
-                        city_params + city_params + params)
-            result["hiring"] = cur.fetchone()["h"]
+            result["missing_counts"] = {f: result.pop(f"missing_{f}") for f in missing}
             cur.execute(ctes + f"SELECT bucket, count(*) n" + base
                         + " AND bucket IS NOT NULL GROUP BY 1",
-                        city_params + city_params + params)
+                        city_params * 3 + params)
             result["buckets"] = [dict(r) for r in cur.fetchall()]
             cur.execute(ctes + f"SELECT d.source, count(*) n,"
                         " count(*) FILTER (WHERE enriched_at IS NOT NULL) checked" + base
-                        + " GROUP BY 1", city_params + city_params + params)
+                        + " GROUP BY 1", city_params * 3 + params)
             result["by_source"] = [dict(r) for r in cur.fetchall()]
-            result["missing_counts"] = {}
-            for f, col in (("size", "size_raw"), ("industry", "industry"),
-                           ("website", "website"), ("address", "address"),
-                           ("description", "description")):
-                cur.execute(ctes + f"SELECT count(*) n" + base +
-                            f" AND COALESCE(LOWER(TRIM(d.{col})), '') IN {_CO_EMPTY}",
-                            city_params + city_params + params)
-                result["missing_counts"][f] = cur.fetchone()["n"]
         return JSONResponse(result)
     finally:
         conn.close()
 
 
 @app.get("/api/companies/export")
-def export_companies(q="", source="", bucket="", hiring=0, it_only=0, city="",
+def export_companies(q="", source="", bucket="", hiring: int = 0,
+                     it_only: int = 0, city="",
                      missing_fields="", missing_mode="all"):
     where, params = _company_where(q, source, bucket, hiring, it_only, city,
                                    missing_fields, missing_mode)

@@ -93,8 +93,61 @@ export type Filters = {
   relevance_min: number;
   mark: MarkState;
   company: string;
+  company_url: string; // URL hồ sơ nguồn — khớp job khi tên công ty khác directory
   role: string; // "de,backend,fullstack,ds" — hướng ứng tuyển, rỗng = mọi ngành
 };
+
+// Inbox mặc định = đúng bài toán săn việc: 4 hướng ứng tuyển (DE chính +
+// Backend/Fullstack/DS) · ≤2 năm KN · còn mở · 14 ngày gần nhất · chưa xem ·
+// xếp theo độ khớp CV.
+export const DEFAULT_FILTERS: Filters = {
+  q: "", source: "", category: "", exp: "2", tag: "", skill: "", level: "",
+  salary_min: 0, it_only: 1, since_hours: 336, sort: "auto", show_hidden: 0,
+  company_size: "", relevance_min: 0, mark: "unseen", company: "",
+  company_url: "", status: "open", city: "", work_mode: "",
+  role: "de,backend,fullstack,ds",
+};
+
+const NUM_KEYS = new Set(["salary_min", "it_only", "since_hours", "show_hidden", "relevance_min"]);
+
+export function parseFilters(sp: URLSearchParams): { filters: Filters; page: number } {
+  const f = { ...DEFAULT_FILTERS };
+  sp.forEach((v, k) => {
+    if (k !== "page" && k in f) {
+      (f as Record<string, unknown>)[k] = NUM_KEYS.has(k) ? Number(v) : v;
+    }
+  });
+  return { filters: f, page: Math.max(1, Number(sp.get("page")) || 1) };
+}
+
+export function serializeFilters(f: Filters, page: number): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(f)) {
+    if (v !== DEFAULT_FILTERS[k as keyof Filters]) sp.set(k, String(v));
+  }
+  if (page > 1) sp.set("page", String(page));
+  return sp.toString();
+}
+
+/** Bộ lọc khi nhảy từ Công ty → Inbox: bỏ giới hạn hàng đợi (hướng/KN/đã xem)
+ *  để mọi việc còn mở của công ty đều hiện, khớp với danh sách trong card. */
+export function companyInboxFilters(
+  c: { company: string; source: string; detail_url?: string | null },
+  city: string,
+): Filters {
+  return {
+    ...DEFAULT_FILTERS,
+    city,
+    company: c.company,
+    company_url: c.detail_url || "",
+    source: c.source,
+    role: "",
+    exp: "",
+    mark: "all",
+    since_hours: 0,
+    relevance_min: 0,
+  };
+}
 
 export const MY_ROLES: { slug: string; name: string; desc: string; main?: boolean }[] = [
   { slug: "de", name: "Data Engineer", desc: "lakehouse · ETL · pipeline", main: true },
@@ -138,9 +191,10 @@ export function filterParams(f: Filters): string {
   if (f.relevance_min) p.set("relevance_min", String(f.relevance_min));
   if (f.mark && f.mark !== "all") p.set("mark", f.mark);
   if (f.company) p.set("company", f.company);
+  if (f.company_url) p.set("company_url", f.company_url);
   for (const [k, v] of Object.entries(f)) {
     if (["it_only", "since_hours", "salary_min", "sort", "show_hidden", "company_size",
-         "relevance_min", "mark", "company"].includes(k)) continue;
+         "relevance_min", "mark", "company", "company_url"].includes(k)) continue;
     if (v) p.set(k, String(v));
   }
   return p.toString();

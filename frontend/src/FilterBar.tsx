@@ -18,6 +18,7 @@ const REL_OPTIONS = [
 ];
 
 const MARK_TABS: { v: MarkState; label: string; countKey?: keyof NonNullable<Stats["queue"]> }[] = [
+  { v: "all", label: "Tất cả" },
   { v: "unseen", label: "Cần xem", countKey: "unseen" },
   { v: "starred", label: "★ Đã sao", countKey: "starred" },
   { v: "viewed", label: "Đã xem", countKey: "viewed" },

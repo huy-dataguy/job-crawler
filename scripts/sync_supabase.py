@@ -36,6 +36,27 @@ from job_crawler import config, locations, roles
 
 STATE_PATH = REPO / "data" / "supabase_sync_state.json"
 
+_FOLD_FROM = (
+    "àáảãạăằắẳẵặâầấẩẫậ"
+    "èéẻẽẹêềếểễệ"
+    "ìíỉĩị"
+    "òóỏõọôồốổỗộơờớởỡợ"
+    "ùúủũụưừứửữự"
+    "ỳýỷỹỵ"
+    "đ"
+)
+_FOLD_TO = "a" * 17 + "e" * 11 + "i" * 5 + "o" * 17 + "u" * 11 + "y" * 5 + "d"
+
+SEARCH_INDEXES = f"""
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX IF NOT EXISTS idx_pc_name_fold_trgm ON company_directory
+  USING gin ((translate(lower(COALESCE(name, '')), '{_FOLD_FROM}', '{_FOLD_TO}')) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_pc_slug_fold_trgm ON company_directory
+  USING gin ((translate(lower(COALESCE(slug, '')), '{_FOLD_FROM}', '{_FOLD_TO}')) gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_pc_industry_fold_trgm ON company_directory
+  USING gin ((translate(lower(COALESCE(industry, '')), '{_FOLD_FROM}', '{_FOLD_TO}')) gin_trgm_ops);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
   source text NOT NULL, source_id text NOT NULL,
@@ -57,6 +78,8 @@ CREATE INDEX IF NOT EXISTS idx_pj_posted ON jobs (posted_at DESC);
 CREATE INDEX IF NOT EXISTS idx_pj_roles ON jobs USING GIN (roles);
 CREATE INDEX IF NOT EXISTS idx_pj_provinces ON jobs USING GIN (provinces);
 CREATE INDEX IF NOT EXISTS idx_pj_status ON jobs (effective_status, date_source);
+CREATE INDEX IF NOT EXISTS idx_pj_company ON jobs (source, company);
+CREATE INDEX IF NOT EXISTS idx_pj_company_url ON jobs (source, company_url);
 CREATE TABLE IF NOT EXISTS job_marks (
   source text NOT NULL, source_id text NOT NULL,
   viewed int NOT NULL DEFAULT 0, hidden int NOT NULL DEFAULT 0,
@@ -238,6 +261,8 @@ def main(full: bool = False):
     try:
         with pg.cursor() as cur:
             cur.execute(SCHEMA)
+            if os.environ.get("SYNC_SEARCH_INDEXES") == "1":
+                cur.execute(SEARCH_INDEXES)
             apply_rls(cur, allowed_email)
         pg.commit()
 
