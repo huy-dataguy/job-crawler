@@ -41,6 +41,8 @@ apply-first inbox.
 - **Match-scored inbox** — every job scored 0–100 against my CV (skill weights ×
   title/category factors); defaults to my four target roles and a ≤2-year
   experience ceiling.
+- **Fresh-discovery filter** — show only jobs the crawler first found today
+  (or in the last 3/7 days), independent of the source's posted date.
 - **Open-state verification** — listings are re-checked against the source
   page (posted date, expiry, 404) so dead postings don't waste apply clicks.
 - **Company directory** — 65k+ profiles harvested from public sitemaps,

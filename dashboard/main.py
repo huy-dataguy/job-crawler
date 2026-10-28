@@ -299,7 +299,7 @@ def api_jobs(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)
              it_only: int = 1, show_hidden: int = 0, company_size: str = "",
              since_hours: int = 336, sort: str = "auto", relevance_min: int = 0,
              mark: str = "all", company: str = "", status: str = "open", city: str = "", work_mode: str = "",
-             role: str = ""):
+             role: str = "", first_seen_hours: int = 0, first_seen_today: int = 0):
     """Bảng đồng nhất xuyên nguồn. `mark` = trạng thái review (unseen/viewed/
     applied/hidden/all); `relevance_min` = ngưỡng khớp profile CV;
     `role` = danh sách hướng ứng tuyển (de,backend,fullstack,ds)."""
@@ -309,7 +309,7 @@ def api_jobs(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)
         level=level, salary_min=salary_min, it_only=it_only,
         since_hours=since_hours, company_size=company_size,
         relevance_min=relevance_min, company=company, status=status, city=city, work_mode=work_mode,
-        role=role)
+        role=role, first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     # Luôn JOIN marks: cần viewed/applied/hidden cho lọc + hiển thị
     if "job_marks" not in frm:
         frm += " LEFT JOIN job_marks ON job_marks.source=jobs.source AND job_marks.source_id=jobs.source_id"
@@ -402,7 +402,8 @@ def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "
               tag: str = "", skill: str = "", level: str = "", salary_min: float = 0,
               it_only: int = 1, since_hours: int = 336, company_size: str = "",
               relevance_min: int = 0, company: str = "", status: str = "open", city: str = "",
-              work_mode: str = "", role: str = ""):
+              work_mode: str = "", role: str = "", first_seen_hours: int = 0,
+              first_seen_today: int = 0):
     """Helper dùng chung: build FROM/WHERE cho mọi endpoint (jobs/stats/trend/meta)
     để filter nào cũng cập nhật mọi số liệu. Cột luôn prefix jobs. tránh ambiguous."""
     use_fts = bool(q.strip())
@@ -464,6 +465,18 @@ def _filtered(*, q: str = "", source: str = "", category: str = "", exp: str = "
         params.append((datetime.now().astimezone() - timedelta(hours=since_hours)).isoformat())
         if status == "open":
             where.append("jobs.date_source='structured'")
+    if first_seen_hours:
+        # Lọc theo thời điểm CRAWLER phát hiện (first_seen_at), không phải ngày
+        # đăng nguồn — job đăng cách đây 5 ngày nhưng hôm nay mới xuất hiện
+        # trên listing vẫn thuộc nhóm này.
+        where.append("julianday(jobs.first_seen_at) >= julianday(?)"
+                     " AND julianday(jobs.first_seen_at) <= julianday('now')")
+        params.append((datetime.now().astimezone() - timedelta(hours=first_seen_hours)).isoformat())
+    if first_seen_today:
+        # "Hôm nay" = từ 00:00 giờ Việt Nam (UTC+7), khác cửa sổ trượt 24h.
+        where.append("julianday(jobs.first_seen_at) >= julianday("
+                     "datetime('now','+7 hours','start of day','-7 hours'))"
+                     " AND julianday(jobs.first_seen_at) <= julianday('now')")
     if company_size:
         # 2 EXISTS tách bạch (không OR trong 1 subquery) để mỗi nhánh dùng được
         # index (source,name)/(source,detail_url) — bộ lọc quy mô trong Inbox.
@@ -511,14 +524,15 @@ def api_meta(q: str = "", source: str = "",
              category: str = "", exp: str = "", tag: str = "", skill: str = "",
              level: str = "", salary_min: float = 0, it_only: int = 1,
              since_hours: int = 336, relevance_min: int = 0, company: str = "", status: str = "open",
-             city: str = "", work_mode: str = "", company_size: str = "", role: str = ""):
+             city: str = "", work_mode: str = "", company_size: str = "", role: str = "",
+             first_seen_hours: int = 0, first_seen_today: int = 0):
     """Facets (counts) cũng tính trên tập đã lọc — chọn filter nào, mọi số đều theo."""
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours, company_size=company_size,
         relevance_min=relevance_min, company=company, status=status, city=city, work_mode=work_mode,
-        role=role)
+        role=role, first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     # Một pass duy nhất cho tags + skills (trước đây 2 pass × 5000 dòng)
     tag_counts: dict[str, int] = {}
     skill_counts: dict[str, int] = {}
@@ -587,7 +601,8 @@ def api_meta(q: str = "", source: str = "",
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
         company_size=company_size, relevance_min=relevance_min, company=company,
-        status=status, city=city, work_mode=work_mode)
+        status=status, city=city, work_mode=work_mode, first_seen_hours=first_seen_hours,
+        first_seen_today=first_seen_today)
     out["role_counts"] = {
         slug: conn.execute(
             f"SELECT count(*) FROM {frm_r} WHERE {where_r} AND role_matches(?, jobs.title, jobs.category)=1",
@@ -603,7 +618,8 @@ def api_trend(days: int = Query(14, ge=1, le=60), q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
               level: str = "", salary_min: float = 0, it_only: int = 1, relevance_min: int = 0,
               company: str = "", status: str = "open", city: str = "", work_mode: str = "",
-              company_size: str = "", since_hours: int = 336, role: str = ""):
+              company_size: str = "", since_hours: int = 336, role: str = "",
+              first_seen_hours: int = 0, first_seen_today: int = 0):
     """Trend việc mới/ngày — tôn trọng filter hiện tại (trừ since_hours)."""
     since = (datetime.now().astimezone() - timedelta(days=days)).isoformat()
     conn = db()
@@ -611,7 +627,7 @@ def api_trend(days: int = Query(14, ge=1, le=60), q: str = "", source: str = "",
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, company_size=company_size, since_hours=since_hours,
         relevance_min=relevance_min, company=company, status=status, city=city, work_mode=work_mode,
-        role=role)
+        role=role, first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     rows = conn.execute(
         f"""SELECT date(jobs.posted_at,'+7 hours') d, jobs.source, count(*) n
            FROM {frm} WHERE {where_s} AND julianday(jobs.posted_at) >= julianday(?) GROUP BY 1, 2 ORDER BY 1""",
@@ -635,14 +651,15 @@ def api_stats(q: str = "", source: str = "",
               category: str = "", exp: str = "", tag: str = "", skill: str = "",
               level: str = "", salary_min: float = 0, it_only: int = 1,
               since_hours: int = 336, relevance_min: int = 0, company: str = "", status: str = "open",
-              city: str = "", work_mode: str = "", company_size: str = "", role: str = ""):
+              city: str = "", work_mode: str = "", company_size: str = "", role: str = "",
+              first_seen_hours: int = 0, first_seen_today: int = 0):
     """Mọi KPI + chart phân bố đều tính trên tập đã lọc (giống danh sách job)."""
     conn = db()
     frm, where_s, params, _ = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours, company_size=company_size,
         relevance_min=relevance_min, company=company, status=status, city=city, work_mode=work_mode,
-        role=role)
+        role=role, first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     # Lưu ý thứ tự bind params: placeholder trong SELECT đứng trước WHERE
     ts24 = (datetime.now().astimezone() - timedelta(hours=24)).isoformat()
     total, active, last24 = conn.execute(

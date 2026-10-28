@@ -95,6 +95,8 @@ export type Filters = {
   company: string;
   company_url: string; // URL hồ sơ nguồn — khớp job khi tên công ty khác directory
   role: string; // "de,backend,fullstack,ds" — hướng ứng tuyển, rỗng = mọi ngành
+  first_seen_hours: number; // crawler phát hiện trong N giờ qua (0 = tất cả)
+  first_seen_today: number; // crawler phát hiện trong ngày hôm nay (giờ VN)
 };
 
 // Inbox mặc định = đúng bài toán săn việc: 4 hướng ứng tuyển (DE chính +
@@ -105,10 +107,10 @@ export const DEFAULT_FILTERS: Filters = {
   salary_min: 0, it_only: 1, since_hours: 336, sort: "auto", show_hidden: 0,
   company_size: "", relevance_min: 0, mark: "unseen", company: "",
   company_url: "", status: "open", city: "", work_mode: "",
-  role: "de,backend,fullstack,ds",
+  role: "de,backend,fullstack,ds", first_seen_hours: 0, first_seen_today: 0,
 };
 
-const NUM_KEYS = new Set(["salary_min", "it_only", "since_hours", "show_hidden", "relevance_min"]);
+const NUM_KEYS = new Set(["salary_min", "it_only", "since_hours", "show_hidden", "relevance_min", "first_seen_hours", "first_seen_today"]);
 
 export function parseFilters(sp: URLSearchParams): { filters: Filters; page: number } {
   const f = { ...DEFAULT_FILTERS };

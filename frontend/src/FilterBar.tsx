@@ -68,6 +68,18 @@ export default function FilterBar({ filters, setF, meta, stats }: {
               onClick={() => setF({ ...filters, since_hours: o.v })}>{o.label}</Chip>
           ))}
         </Group>
+        <Group label="Phát hiện">
+          <Chip active={!filters.first_seen_today && !filters.first_seen_hours}
+            onClick={() => setF({ ...filters, first_seen_today: 0, first_seen_hours: 0 })}>Tất cả</Chip>
+          <Chip active={!!filters.first_seen_today}
+            onClick={() => setF({ ...filters, first_seen_today: 1, first_seen_hours: 0 })}>Hôm nay</Chip>
+          {[72, 168].map((v) => (
+            <Chip key={v} active={filters.first_seen_hours === v}
+              onClick={() => setF({ ...filters, first_seen_today: 0, first_seen_hours: v })}>
+              {v === 72 ? "3 ngày" : "7 ngày"}
+            </Chip>
+          ))}
+        </Group>
         <Group label="Khớp CV">
           {REL_OPTIONS.map((o) => (
             <Chip key={o.v} active={filters.relevance_min === o.v}

@@ -47,6 +47,28 @@ def test_recent_open_contract_and_company_size_are_shared_by_api(tmp_path,monkey
     assert json.loads(api.api_jobs(limit=50,offset=0,status='unknown').body)['jobs'][0]['source_id']=='stale'
 
 
+def test_first_seen_hours_filters_by_crawler_discovery_not_posted_date(tmp_path,monkeypatch):
+    path=tmp_path/'jobs.db'
+    monkeypatch.setattr(api,'DB_PATH',path)
+    conn=store.connect(path)
+    now=datetime.now().astimezone()
+    for ident in ('fresh','old-discovery'):
+        store.upsert_job(conn,job(source_id=ident))
+    conn.execute("UPDATE jobs SET posted_at=?,date_source='structured',status='open',detail_checked_at=?",
+                 ((now-timedelta(days=1)).isoformat(),now.isoformat()))
+    conn.execute("UPDATE jobs SET first_seen_at=? WHERE source_id='old-discovery'",
+                 ((now-timedelta(days=5)).isoformat(),))
+    conn.commit();conn.close()
+    result=json.loads(api.api_jobs(limit=50,offset=0,first_seen_hours=24).body)
+    assert result['total']==1 and result['jobs'][0]['source_id']=='fresh'
+    assert json.loads(api.api_jobs(limit=50,offset=0).body)['total']==2
+    assert json.loads(api.api_jobs(limit=50,offset=0,first_seen_today=1).body)['total']==1
+    assert api.api_stats(first_seen_hours=24)['total']==1
+    assert api.api_stats(first_seen_today=1)['total']==1
+    assert api.api_meta(first_seen_hours=24)['role_counts']['de']==1
+    assert api.api_meta(first_seen_today=1)['role_counts']['de']==1
+
+
 def test_fts_quotes_and_punctuation_do_not_break_serving(tmp_path,monkeypatch):
     path=tmp_path/'jobs.db';monkeypatch.setattr(api,'DB_PATH',path)
     store.connect(path).close()

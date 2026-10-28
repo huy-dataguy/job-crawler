@@ -250,7 +250,7 @@ def rowjson(r):
 def _filtered(q="", source="", category="", exp="", tag="", skill="", level="",
               salary_min=0.0, it_only=1, since_hours=336, company_size="",
               relevance_min=0, company="", company_url="", status="open", city="",
-              work_mode="", role=""):
+              work_mode="", role="", first_seen_hours=0, first_seen_today=0):
     """Build WHERE chung cho jobs/meta/stats/trend — mirror dashboard local."""
     where, params = ["1=1"], []
     if status not in ("open", "closed", "unknown", "all"):
@@ -303,6 +303,18 @@ def _filtered(q="", source="", category="", exp="", tag="", skill="", level="",
         where.append("jobs.skills @> %s::jsonb"); params.append(json.dumps([skill]))
     if tag:
         where.append("jobs.tags @> %s::jsonb"); params.append(json.dumps([tag]))
+    if first_seen_hours:
+        # Thời điểm crawler PHÁT HIỆN job (first_seen_at) — khác posted_at là
+        # ngày đăng trên nguồn; lọc "việc mới trong hôm nay" theo crawler.
+        where.append("jobs.first_seen_at >= now() - make_interval(hours => %s)"
+                     " AND jobs.first_seen_at <= now()")
+        params.append(first_seen_hours)
+    if first_seen_today:
+        # "Hôm nay" = từ 00:00 giờ Việt Nam — khác cửa sổ trượt 24h.
+        where.append("jobs.first_seen_at >= "
+                     "(date_trunc('day', now() AT TIME ZONE 'Asia/Ho_Chi_Minh')"
+                     " AT TIME ZONE 'Asia/Ho_Chi_Minh')"
+                     " AND jobs.first_seen_at <= now()")
     for term in [t for t in (q or "").split() if t.strip()][:8]:
         folded = _fold_text(term)
         if folded:
@@ -373,14 +385,16 @@ def api_jobs(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)
              salary_min: float = 0.0, it_only: int = 1, show_hidden: int = 0,
              company_size="", since_hours: int = 336, sort="auto",
              relevance_min: int = 0, mark="all",
-             company="", company_url="", status="open", city="", work_mode="", role=""):
+             company="", company_url="", status="open", city="", work_mode="", role="",
+             first_seen_hours: int = 0, first_seen_today: int = 0):
     where, params = _filtered(q=q, source=source, category=category, exp=exp,
                               tag=tag, skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=since_hours,
                               company_size=company_size, relevance_min=relevance_min,
                               company=company, company_url=company_url,
                               status=status, city=city,
-                              work_mode=work_mode, role=role)
+                              work_mode=work_mode, role=role,
+                              first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     if mark in MARK_CONDS:
         where += f" AND {MARK_CONDS[mark]}"
     elif not show_hidden:
@@ -409,18 +423,21 @@ def api_jobs(limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0)
 def api_meta(source="", q="", category="", exp="", tag="", skill="", level="",
              salary_min: float = 0.0, it_only: int = 1, since_hours: int = 336,
              relevance_min: int = 0, company="", company_url="", status="open",
-             city="", work_mode="", company_size="", role=""):
+             city="", work_mode="", company_size="", role="",
+             first_seen_hours: int = 0, first_seen_today: int = 0):
     where, params = _filtered(q=q, source=source, category=category, exp=exp, tag=tag,
                               skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=since_hours,
                               company_size=company_size, relevance_min=relevance_min,
                               company=company, company_url=company_url, status=status,
-                              city=city, work_mode=work_mode, role=role)
+                              city=city, work_mode=work_mode, role=role,
+                              first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     where_no_role, params_no_role = _filtered(
         q=q, source=source, category=category, exp=exp, tag=tag, skill=skill,
         level=level, salary_min=salary_min, it_only=it_only, since_hours=since_hours,
         company_size=company_size, relevance_min=relevance_min, company=company,
-        company_url=company_url, status=status, city=city, work_mode=work_mode, role="")
+        company_url=company_url, status=status, city=city, work_mode=work_mode, role="",
+        first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     conn = db()
     try:
         with conn.cursor() as cur:
@@ -496,13 +513,15 @@ def api_meta(source="", q="", category="", exp="", tag="", skill="", level="",
 def api_stats(source="", q="", category="", exp="", tag="", skill="", level="",
               salary_min: float = 0.0, it_only: int = 1, since_hours: int = 336,
               relevance_min: int = 0, company="", company_url="", status="open",
-              city="", work_mode="", company_size="", role=""):
+              city="", work_mode="", company_size="", role="",
+              first_seen_hours: int = 0, first_seen_today: int = 0):
     where, params = _filtered(q=q, source=source, category=category, exp=exp, tag=tag,
                               skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=since_hours,
                               company_size=company_size, relevance_min=relevance_min,
                               company=company, company_url=company_url, status=status,
-                              city=city, work_mode=work_mode, role=role)
+                              city=city, work_mode=work_mode, role=role,
+                              first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     conn = db()
     try:
         with conn.cursor() as cur:
@@ -541,14 +560,16 @@ def api_trend(days: int = Query(14, ge=1, le=60), q: str = "", source: str = "",
               level: str = "", salary_min: float = 0, it_only: int = 1,
               relevance_min: int = 0, company: str = "", company_url: str = "",
               status: str = "open", city: str = "", work_mode: str = "",
-              company_size: str = "", role: str = ""):
+              company_size: str = "", role: str = "",
+              first_seen_hours: int = 0, first_seen_today: int = 0):
     """Trend việc mới/ngày — tôn trọng filter hiện tại (trừ since_hours)."""
     where, params = _filtered(q=q, source=source, category=category, exp=exp, tag=tag,
                               skill=skill, level=level, salary_min=salary_min,
                               it_only=it_only, since_hours=0, company_size=company_size,
                               relevance_min=relevance_min, company=company,
                               company_url=company_url, status=status,
-                              city=city, work_mode=work_mode, role=role)
+                              city=city, work_mode=work_mode, role=role,
+                              first_seen_hours=first_seen_hours, first_seen_today=first_seen_today)
     conn = db()
     try:
         with conn.cursor() as cur:
