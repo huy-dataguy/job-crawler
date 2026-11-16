@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-import time
 from datetime import datetime, time as day_time, timedelta
 from difflib import SequenceMatcher
 from urllib.parse import urlparse
@@ -168,6 +167,13 @@ def parse_detail(html: str, job: dict, *, now: datetime | None = None) -> dict:
     return result
 
 
+def _detail_adapter(source: str):
+    """Nguồn có API detail riêng thì dùng adapter thay vì fetch HTML + JSON-LD."""
+    from . import itviec, topcv, topdev
+    module = {"itviec": itviec, "topcv": topcv, "topdev": topdev}.get(source)
+    return getattr(module, "fetch_detail", None) if module else None
+
+
 def verify_source(conn: sqlite3.Connection, source: str, *, budget: int | None = None) -> dict:
     budget = config.JOB_DETAIL_BUDGET if budget is None else budget
     rows = conn.execute(
@@ -180,15 +186,22 @@ def verify_source(conn: sqlite3.Connection, source: str, *, budget: int | None =
                    detail_checked_at IS NOT NULL, detail_checked_at, relevance DESC, last_seen_at DESC
           LIMIT ?""", (source, budget)).fetchall()
     checked = opened = closed = errors = 0
+    adapter = _detail_adapter(source)
     for row in rows:
         job = dict(row)
         ts = store.now_iso()
         try:
-            if urlparse(job["url"] or "").hostname not in HOSTS[source]:
-                raise ValueError("Job URL is outside source hosts")
-            html = fetch(source, job["url"], kind="job")
-            detail = parse_detail(html, job)
-            detail["raw_artifact"] = raw.preserve(source, job["url"], html, kind="job")
+            if adapter is not None:
+                # Đi qua API detail: JSON đã đủ nội dung + trạng thái, không cần
+                # render HTML; http.fetch_json đã tự lưu artifact trong raw.
+                detail = adapter(job)
+            else:
+                if urlparse(job["url"] or "").hostname not in HOSTS[source]:
+                    raise ValueError("Job URL is outside source hosts")
+                html = fetch(source, job["url"], kind="job")
+                detail = parse_detail(html, job)
+                detail["raw_artifact"] = raw.preserve(source, job["url"], html, kind="job")
+            detail["detail_checked_at"] = ts
             detail["detail_attempted_at"] = ts
             merged = {**job, **detail}
             relevance.annotate(merged)
@@ -222,7 +235,6 @@ def verify_source(conn: sqlite3.Connection, source: str, *, budget: int | None =
             if isinstance(exc, SourceError) and exc.status in (403, 429):
                 break
         conn.commit()
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
     return {"attempted": checked + errors, "checked": checked, "open": opened, "closed": closed, "errors": errors}
 
 
