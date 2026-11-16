@@ -100,7 +100,7 @@ def require_user(authorization: str = Header(default="")) -> str:
     return _verify_token(token.strip())
 
 
-app = FastAPI(title="Săn Việc API", version="1.0.0",
+app = FastAPI(title="Job Hunt API", version="1.0.0",
               dependencies=[Depends(require_user)])
 
 ROLE_SLUGS = ["de", "backend", "fullstack", "ds"]

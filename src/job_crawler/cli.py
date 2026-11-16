@@ -31,7 +31,9 @@ def main() -> None:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
             print(json.dumps({"status":"skipped", "reason":"another writer is running"}))
-            raise SystemExit(75)  # systemd retries a busy writer after a delay
+            # Bận lock = đã có writer khác làm việc này; không phải lỗi.
+            # Exit 0 để Windmill/systemd không đánh dấu fail; nhịp sau tự chạy.
+            raise SystemExit(0)
         if args.target == "migrate":
             from .migrations import migrate
             result = migrate(config.DB_PATH)

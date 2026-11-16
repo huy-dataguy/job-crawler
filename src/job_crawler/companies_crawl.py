@@ -30,7 +30,7 @@ from .http import fetch, SourceError
 from . import raw
 from .company_enrich import bucket_for, parse_size_range
 
-_S = curl_requests.Session(impersonate="chrome124")
+_S = curl_requests.Session(impersonate="chrome136")
 
 TOPCV_SITEMAP_INDEX = "https://www.topcv.vn/sitemap/companies.xml"
 ITVIEC_COMPANIES_URL = "https://itviec.com/companies"

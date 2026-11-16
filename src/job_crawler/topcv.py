@@ -1,25 +1,48 @@
-"""TopCV public national IT listings, acquired through a source-scoped TLS session."""
+"""TopCV public national IT listings, acquired through a source-scoped TLS session.
+
+TopCV nằm sau Cloudflare. Kinh nghiệm đo được: burst 5 request song song bị
+`403` + `cf-mitigated: challenge`, trong khi warm-up trang chủ rồi giữ **một**
+session (cookie cf_clearance) và giãn cách ~2.5s thì 6/6 request trả 200.
+Vì vậy: không xoay TLS profile mỗi lần lỗi (xoay = mất cookie = tự bắn vào
+challenge), chỉ warm-up một lần và tái dùng session.
+"""
 from __future__ import annotations
 
 import json
-import time
+import re
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
 
-from . import config
+from . import config, drift
 from . import normalize
+from .http import SourceError, fetch, warm_up
 from .itviec import _posted_iso
-from .http import fetch
 
-_session: curl_requests.Session | None = None
+_IMPERSONATE_CHAIN: tuple[str, ...] = ("chrome136", "safari184", "chrome124")
+_sticky_profile: str = "chrome136"
+_sessions: dict[str, curl_requests.Session] = {}
+_warmed = False
 
 
-def _get_session() -> curl_requests.Session:
-    global _session
-    if _session is None:
-        _session = curl_requests.Session(impersonate="chrome124")
-    return _session
+def _get_session(profile: str | None = None) -> curl_requests.Session:
+    p = profile or _sticky_profile
+    if p not in _sessions:
+        _sessions[p] = curl_requests.Session(impersonate=p)
+    return _sessions[p]
+
+
+def _warm() -> None:
+    """Một lần/process: lấy cookie hợp lệ trước khi vào listing."""
+    global _warmed, _sticky_profile
+    if _warmed:
+        return
+    for profile in _IMPERSONATE_CHAIN:
+        if warm_up("topcv", "https://www.topcv.vn/", session=_get_session(profile)):
+            _sticky_profile = profile
+            _warmed = True
+            return
+    _warmed = True  # vẫn thử listing: warm-up lỗi không được chặn crawl
 
 
 def fetch_html(
@@ -27,21 +50,57 @@ def fetch_html(
     expect: tuple[str, ...] = (),
     timeout: float = 30,
 ) -> str:
-    """Fetch one public page, stopping on challenge/rate limit."""
+    """Fetch one public page with the sticky session (no cookie-destroying rotation)."""
+    _warm()
     html = fetch("topcv", url, session=_get_session(), timeout=timeout)
     if expect and not all(tok in html for tok in expect):
-        raise RuntimeError(f"TopCV schema changed: missing {expect}")
+        raise SourceError(f"TopCV page missing {expect}: markup drifted")
     return html
 
 
 def _fetch_listing(url: str) -> str:
-    return fetch_html(url, expect=("company-name", "data-job-id"), timeout=40)
+    return fetch_html(url, expect=("job-item-search-result", "data-job-id"), timeout=40)
+
+
+def _url_to_id(url: str) -> str | None:
+    m = re.search(r"/(\d+)\.html", url)
+    return m.group(1) if m else None
+
+
+def parse_item_list(html: str) -> list[tuple[str, str]]:
+    """ItemList JSON-LD lồng trong CollectionPage.mainEntity: [(url, name)]."""
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[tuple[str, str]] = []
+
+    def walk(obj):
+        if isinstance(obj, list):
+            for item in obj:
+                walk(item)
+        elif isinstance(obj, dict):
+            if "ItemList" in str(obj.get("@type")):
+                for entry in obj.get("itemListElement") or []:
+                    item = entry.get("item") if isinstance(entry, dict) else None
+                    if not isinstance(item, dict):
+                        continue
+                    url = item.get("url") or ""
+                    if isinstance(url, str) and "/viec-lam/" in url:
+                        out.append((url.split("?")[0], item.get("name") or ""))
+            for value in obj.values():
+                if isinstance(value, (dict, list)):
+                    walk(value)
+
+    for node in soup.select('script[type="application/ld+json"]'):
+        try:
+            walk(json.loads(node.get_text()))
+        except (ValueError, TypeError):
+            continue
+    return list(dict.fromkeys(out))
 
 
 def parse_listing(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
     jobs: list[dict] = []
-    for card in soup.select("div.job-item-search-result[data-job-id]") :
+    for card in soup.select("div.job-item-search-result[data-job-id]"):
         jid = card.get("data-job-id")
         if not jid:
             continue
@@ -100,7 +159,29 @@ def parse_listing(html: str) -> list[dict]:
                 "posted_at": _posted_iso(posted_text),
             }
         )
+    # Dự phòng: card không parse được vẫn còn URL trong JSON-LD để verify bù.
+    seen = {j["source_id"] for j in jobs}
+    for url, name in parse_item_list(html):
+        jid = _url_to_id(url)
+        if not jid or jid in seen:
+            continue
+        jobs.append(_ld_only_job(url, jid, name))
     return jobs
+
+
+def _ld_only_job(url: str, jid: str, name: str) -> dict:
+    title = (name or "").strip()
+    return {
+        "source": "topcv", "source_id": jid, "title": title, "company": "",
+        "company_url": None, "url": url, "city": "", "salary": "",
+        "experience": "", "exp_min": None,
+        "category": normalize.infer_category(title, [], ""),
+        "tags": normalize.tags_json([]), "skills": "[]",
+        "is_it": 1 if normalize.is_it_job(title, [], "", "topcv") else 0,
+        "level": normalize.parse_level(title), "salary_min": None,
+        "salary_max": None, "posted_text": "", "posted_at": None,
+        "_fallback": True,
+    }
 
 
 def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
@@ -121,5 +202,12 @@ def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
         pages += 1
         for j in jobs:
             all_jobs[j["source_id"]] = j
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
-    return list(all_jobs.values()), pages
+    jobs = list(all_jobs.values())
+    fallback = sum(1 for j in jobs if j.pop("_fallback", False))
+    if jobs and fallback / len(jobs) > 1 - config.MIN_FILL_RATE:
+        raise drift.SchemaDrift(
+            "topcv", fill_rate=1 - fallback / len(jobs),
+            threshold=config.MIN_FILL_RATE,
+            sample_missing=["div.job-item-search-result"])
+    drift.ensure("topcv", jobs)
+    return jobs, pages

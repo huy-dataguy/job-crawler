@@ -10,7 +10,7 @@ export const ALLOWED_EMAIL = String(import.meta.env.VITE_ALLOWED_EMAIL || "").to
 export const supabase = url && key ? createClient(url, key) : null;
 export const authConfigError =
   !url || !key
-    ? "Bản build thiếu VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — xem docs/security.md."
+    ? "Build is missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — see docs/security.md."
     : null;
 
 export type AuthState =
@@ -48,7 +48,7 @@ export function useAuth() {
       if (email && email === ALLOWED_EMAIL) {
         setState({ status: "ok", email });
       } else {
-        deniedEmail.current = email || "không rõ tài khoản";
+        deniedEmail.current = email || "unknown account";
         setState({ status: "denied", email: deniedEmail.current });
         supabase.auth.signOut(); // session của người lạ không nằm lại trên máy
       }

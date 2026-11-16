@@ -19,7 +19,7 @@ phút đầu sau khi mở máy là data tươi lại.
 | Biến | Mặc định | Ý nghĩa |
 | --- | --- | --- |
 | JC_DATA_DIR / JC_DB_PATH | ./data | Vị trí SQLite, raw, lock |
-| JC_MAX_PAGES_ITVIEC/TOPCV/TOPDEV | 2/2/2 | Trang mỗi lượt quick |
+| JC_MAX_PAGES_ITVIEC/TOPCV/TOPDEV | 2/2/5 | Trang mỗi lượt quick (TopDev đa ngành → 9% job là IT) |
 | JC_DEEP_PAGES_ITVIEC/TOPCV/TOPDEV | 50/20/40 | Lượt sâu hằng ngày |
 | JC_RAW_RETENTION_HOURS | 48 | TTL raw (0 = tắt dọn) |
 | JC_JOB_DETAIL_BUDGET | 60 | Chi tiết tối đa mỗi nguồn/lượt |
@@ -27,7 +27,12 @@ phút đầu sau khi mở máy là data tươi lại.
 | JC_TOPCV_SITEMAP_PAGES | 10 | Sub-sitemap mỗi lượt |
 | JC_TOPDEV_COMPANY_PAGES | 10 | Trang danh bạ TopDev mỗi lượt |
 | JC_OPEN_CHECK_HOURS | 24 | Hết bằng chứng "còn mở" |
-| JC_DELAY | 2.0 | Giãn request, giây |
+| JC_DELAY | 2.0 | Giãn request mặc định, giây |
+| JC_DELAY_ITVIEC/TOPCV/TOPDEV | 1.6/2.5/0.4 | Giãn request theo host (kèm jitter `JC_DELAY_JITTER`) |
+| JC_IMPERSONATE | chrome136 | TLS profile chung |
+| JC_MIN_FILL_RATE | 0.85 | Ngưỡng drift: dưới mức này → dừng + báo lỗi |
+| JC_TOPDEV_PAGE_SIZE | 100 | Job/trang API TopDev (max 100) |
+| JC_TOPDEV_ORDERING | newest | Sort listing TopDev |
 | SUPABASE_DB_URL | — | Pooler Postgres cho sync + API production |
 | VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY | — | Auth client (public key) |
 | VITE_ALLOWED_EMAIL / ALLOWED_EMAIL | — | Email Google duy nhất được vào web |

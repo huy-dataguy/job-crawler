@@ -3,17 +3,16 @@ from __future__ import annotations
 
 import json
 import re
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-from . import config
+from . import config, drift
 from . import normalize
-from .http import fetch
+from .http import fetch, warm_up
 
-_S = requests.Session(impersonate="chrome124")
+_S = requests.Session(impersonate=config.IMPERSONATE)
 
 _SLUG_RE = re.compile(r"-\d{3,4}$")
 
@@ -24,6 +23,37 @@ def fetch_html(url: str) -> str:
 
 def _txt(node) -> str:
     return re.sub(r"\s+", " ", node.get_text(" ", strip=True)) if node else ""
+
+
+def parse_item_list(html: str) -> list[tuple[str, str]]:
+    """ItemList JSON-LD: [(url, name)] — dạng dữ liệu site tự công bố cho crawler.
+
+    Dùng làm lớp thứ hai: khi CSS card đổi class, ta vẫn có URL để đi tiếp và
+    biết chính xác trang có bao nhiêu job (drift detector).
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    out: list[tuple[str, str]] = []
+    for node in soup.select('script[type="application/ld+json"]'):
+        try:
+            data = json.loads(node.get_text())
+        except (ValueError, TypeError):
+            continue
+        for obj in (data if isinstance(data, list) else [data]):
+            if not isinstance(obj, dict) or "ItemList" not in str(obj.get("@type")):
+                continue
+            for entry in obj.get("itemListElement") or []:
+                if not isinstance(entry, dict):
+                    continue
+                item = entry.get("item") if isinstance(entry.get("item"), dict) else {}
+                url = entry.get("url") or item.get("url") or ""
+                name = entry.get("name") or item.get("name") or ""
+                if isinstance(url, str) and "/it-jobs/" in url:
+                    out.append((url.split("?")[0], name))
+    return list(dict.fromkeys(out))
+
+
+def _url_to_slug(url: str) -> str:
+    return url.rstrip("/").rsplit("/", 1)[-1]
 
 
 def parse_listing(html: str) -> list[dict]:
@@ -88,7 +118,29 @@ def parse_listing(html: str) -> list[dict]:
                 "posted_at": _posted_iso(posted_text),
             }
         )
+    # Lớp dự phòng: ItemList JSON-LD có URL mà CSS card không parse được
+    # (site đổi markup) → vẫn giữ job, phần chi tiết do bước verify bù.
+    seen = {j["source_id"] for j in jobs}
+    for url, name in parse_item_list(html):
+        if _url_to_slug(url) in seen:
+            continue
+        jobs.append(_ld_only_job(url, name))
     return jobs
+
+
+def _ld_only_job(url: str, name: str) -> dict:
+    slug = _url_to_slug(url)
+    title = name or slug.rsplit("-", 1)[0].replace("-", " ").title()
+    level = normalize.parse_level(title)
+    return {
+        "source": "itviec", "source_id": slug, "title": title, "company": "",
+        "company_url": None, "url": url, "city": "", "work_mode": None,
+        "salary": "N/A", "experience": "", "exp_min": normalize.LEVEL_EXP.get(level),
+        "category": normalize.infer_category(title, [], ""),
+        "tags": normalize.tags_json([]), "skills": "[]", "is_it": 1,
+        "level": level, "salary_min": None, "salary_max": None,
+        "posted_text": "", "posted_at": None, "_fallback": True,
+    }
 
 
 def _posted_iso(text: str) -> str | None:
@@ -116,6 +168,7 @@ def _posted_iso(text: str) -> str | None:
 def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
     """Crawl N trang đầu của listing HCM (việc mới nằm ở các trang đầu).
     Trả về (jobs, pages_crawled)."""
+    warm_up("itviec", config.LISTING_URL, session=_S)
     all_jobs: dict[str, dict] = {}
     pages = 0
     for page in range(1, (max_pages or config.MAX_PAGES_ITVIEC) + 1):
@@ -131,5 +184,11 @@ def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
         pages += 1
         for j in found:
             all_jobs[j["source_id"]] = j
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
-    return list(all_jobs.values()), pages
+    jobs = list(all_jobs.values())
+    fallback = sum(1 for j in jobs if j.pop("_fallback", False))
+    if jobs and fallback / len(jobs) > 1 - config.MIN_FILL_RATE:
+        raise drift.SchemaDrift(
+            "itviec", fill_rate=1 - fallback / len(jobs),
+            threshold=config.MIN_FILL_RATE, sample_missing=["div[class*=job-card]"])
+    drift.ensure("itviec", jobs)
+    return jobs, pages

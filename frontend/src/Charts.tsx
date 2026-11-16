@@ -3,6 +3,7 @@ import {
   Bar, BarChart, CartesianGrid, ComposedChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart,
 } from "recharts";
 import type { Job } from "./api";
+import { useT } from "./i18n";
 import { BUCKET_ORDER, salaryBucket } from "./salary";
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -17,10 +18,11 @@ const TOOLTIP = {
 };
 
 export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] } | undefined }) {
+  const t = useT();
   const sources = trend?.sources || [];
   const data = trend?.days || [];
   return (
-    <Panel title="Việc mới đăng theo ngày (14 ngày, ước tính từ 'đăng N ngày trước')">
+    <Panel title={t("New jobs posted per day (14 days, estimated from 'posted N days ago')")}>
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID} />
@@ -41,16 +43,17 @@ export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] 
 export function CategoryChart({ stats }: { stats: {
   top_categories: { category: string; n: number }[]
 } | undefined }) {
+  const t = useT();
   const data = (stats?.top_categories || []).slice(0, 12).map((c) => ({ name: c.category, n: c.n }));
   return (
-    <Panel title="Top ngành / category">
+    <Panel title={t("Top categories")}>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={data} layout="vertical" margin={{ left: 80 }}>
           <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={GRID} />
           <XAxis type="number" allowDecimals={false} tick={TICK} />
           <YAxis type="category" dataKey="name" tick={TICK} width={120} />
           <Tooltip contentStyle={TOOLTIP} />
-          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#5566ff" radius={[0, 4, 4, 0]} />
+          <Bar isAnimationActive={false} dataKey="n" name={t("jobs")} fill="#5566ff" radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Panel>
@@ -61,16 +64,17 @@ export function ExperienceChart({ stats, onPick }: { stats: {
   top_exp?: { experience: string; n: number }[];
   topcv_top_exp: { experience: string; n: number }[]
 } | undefined; onPick: (name: string) => void }) {
+  const t = useT();
   const data = stats?.top_exp || stats?.topcv_top_exp || [];
   return (
-    <Panel title="Năm kinh nghiệm — click để lọc">
+    <Panel title={t("Years of experience — click to filter")}>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} onClick={(s: any) => s?.activeLabel && onPick(s.activeLabel)}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID} />
           <XAxis dataKey="experience" tick={TICK} />
           <YAxis allowDecimals={false} tick={TICK} />
           <Tooltip contentStyle={TOOLTIP} />
-          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#1d2249" radius={[4, 4, 0, 0]} />
+          <Bar isAnimationActive={false} dataKey="n" name={t("jobs")} fill="#1d2249" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Panel>
@@ -78,6 +82,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
 }
 
 export function SalaryChart({ jobs }: { jobs: Job[] }) {
+  const t = useT();
   const data = useMemo(() => {
     const buckets = new Map<string, number>(BUCKET_ORDER.map((b) => [b, 0]));
     for (const j of jobs) {
@@ -87,14 +92,14 @@ export function SalaryChart({ jobs }: { jobs: Job[] }) {
     return BUCKET_ORDER.map((b) => ({ range: b, n: buckets.get(b) || 0 }));
   }, [jobs]);
   return (
-    <Panel title="Phân bố lương (triệu VND/tháng, ước tính từ lương công khai)">
+    <Panel title={t("Salary distribution (million VND/month, estimated from public salary)")}>
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID} />
           <XAxis dataKey="range" tick={TICK} />
           <YAxis tick={TICK} allowDecimals={false} />
           <Tooltip contentStyle={TOOLTIP} />
-          <Area isAnimationActive={false} dataKey="n" name="số job" stroke="#0da678" fill="#0da67822" strokeWidth={2} />
+          <Area isAnimationActive={false} dataKey="n" name={t("jobs")} stroke="#0da678" fill="#0da67822" strokeWidth={2} />
         </AreaChart>
       </ResponsiveContainer>
     </Panel>
