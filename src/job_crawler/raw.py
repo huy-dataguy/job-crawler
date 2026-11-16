@@ -20,13 +20,14 @@ from pathlib import Path
 from . import config
 
 
-def preserve(source: str, url: str, body: str, *, kind: str = "page", status: int = 200) -> str:
+def preserve(source: str, url: str, body: str, *, kind: str = "page", status: int = 200,
+             suffix: str = "html") -> str:
     now = datetime.now(timezone.utc)
     payload = body.encode("utf-8")
     digest = hashlib.sha256(payload).hexdigest()
     folder = config.DATA_DIR / "raw" / source / now.date().isoformat() / kind
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f"{digest}.html.gz"
+    path = folder / f"{digest}.{suffix}.gz"
     try:
         with path.open("xb") as f:
             f.write(gzip.compress(payload, compresslevel=6))
