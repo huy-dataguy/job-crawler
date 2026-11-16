@@ -28,7 +28,7 @@ SCRIPTS = {
     "companies": ("Làm giàu danh bạ công ty",
                   ".venv/bin/job-crawler companies 2>&1"),
     "deep": ("Quét sâu + kiểm tra job còn mở",
-             ".venv/bin/job-crawler deep 2>&1"),
+             "bash scripts/local/run_deep.sh 2>&1"),
     "check": ("Kiểm tra sức khoẻ cả chuỗi (windmill→cloud)",
               "bash scripts/local/check.sh 2>&1"),
 }
@@ -49,7 +49,10 @@ def api(method: str, path: str, token: str = "", body: dict | None = None) -> tu
     try:
         with urllib.request.urlopen(req, data=data, timeout=30) as r:
             raw = r.read().decode()
-            return r.status, (json.loads(raw) if raw[:1] in ("[", "{") else raw)
+            try:
+                return r.status, json.loads(raw)
+            except Exception:
+                return r.status, raw
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode()[:200]
 
@@ -86,14 +89,24 @@ def ensure_scripts(token: str) -> None:
             "exit_code=$?\necho '---- done ----'\nexit $exit_code")
     for name, (summary, cmd) in SCRIPTS.items():
         path = f"u/jobcrawler/{name}"
-        code, body = api("GET", f"/api/w/jobcrawler/scripts/exists/p/{path}", token)
-        # API trả 200 kèm true/false — phải soi body, không nhìn status
-        if code == 200 and body is True:
-            print(f"script {name}: đã có")
-            continue
-        body = {"path": path, "parent_hash": None, "summary": summary, "kind": "script",
+        content = bash.format(repo=REPO, cmd=cmd)
+        body = {"path": path, "summary": summary, "kind": "script",
                 "language": "bash", "is_template": False,
-                "content": bash.format(repo=REPO, cmd=cmd)}
+                "content": content}
+        code, exists = api("GET", f"/api/w/jobcrawler/scripts/exists/p/{path}", token)
+        # API trả 200 kèm true/false — phải soi body, không nhìn status
+        if code == 200 and exists is True:
+            _, cur = api("GET", f"/api/w/jobcrawler/scripts/get/p/{path}", token)
+            if isinstance(cur, dict):
+                if cur.get("content") == content:
+                    print(f"script {name}: đã có (mới nhất)")
+                    continue
+                body["parent_hash"] = cur.get("hash")
+                body["auto_parent"] = True
+            code_u, err = api("POST", f"/api/w/jobcrawler/scripts/update/{path}", token, body)
+            print(f"script {name}: cập nhật (HTTP {code_u})" + (f" {err}" if code_u >= 400 else ""))
+            continue
+        body["parent_hash"] = None
         code, err = api("POST", "/api/w/jobcrawler/scripts/create", token, body)
         print(f"script {name}: HTTP {code}" + (f" {err}" if code >= 400 else ""))
 

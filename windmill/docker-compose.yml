@@ -27,6 +27,9 @@ services:
     image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill:main}
     pull_policy: missing
     restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     ports: ["${WM_PORT:-8132}:8000"]
     environment:
       - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-windmill_local}@db:5432/windmill?sslmode=disable
@@ -41,6 +44,9 @@ services:
     image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill:main}
     pull_policy: missing
     restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     user: "1000:1000"          # trùng uid dataguy — ghi được SQLite/raw của repo
     environment:
       - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-windmill_local}@db:5432/windmill?sslmode=disable
