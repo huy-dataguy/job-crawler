@@ -1,12 +1,11 @@
 import type { ReactNode } from "react";
 import { authConfigError, useAuth } from "./auth";
 import Logo from "./Logo";
+import { useT } from "./i18n";
 
-// Cổng đăng nhập: trang là của riêng chủ sở hữu — API từ chối mọi request
-// không có token hợp lệ của ALLOWED_EMAIL, nên gate này chỉ để UX mượt (không
-// spam 401); lớp enforce thật nằm ở api/index.py và RLS Postgres.
 export default function AuthGate({ children }: { children: ReactNode }) {
   const { state, signIn, retrySignIn } = useAuth();
+  const t = useT();
 
   if (authConfigError) {
     return (
@@ -20,7 +19,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
     return (
       <Shell>
         <Logo size={64} className="animate-[pulse_1.6s_ease-in-out_infinite]" />
-        <p className="mt-4 font-mono text-xs text-faint">đang mở khóa…</p>
+        <p className="mt-4 font-mono text-xs text-faint">{t("Loading…")}</p>
       </Shell>
     );
   }
@@ -30,17 +29,16 @@ export default function AuthGate({ children }: { children: ReactNode }) {
       <Shell>
         <Card>
           <LogoMark />
-          <p className="font-mono text-[11px] tracking-[0.18em] text-coral font-medium">KHÔNG CÓ QUYỀN TRUY CẬP</p>
+          <p className="font-mono text-[11px] tracking-[0.18em] text-coral font-medium">{t("NO ACCESS")}</p>
           <h1 className="mt-3 text-[26px] font-extrabold tracking-tight leading-tight">
-            Tài khoản này <em className="accent-italic">không được mời</em>.
+            {t("This account")} <em className="accent-italic">{t("is not invited")}</em>.
           </h1>
           <p className="mt-3 text-slate text-[14px] leading-relaxed">
-            <span className="font-mono text-[13px]">{state.email}</span> không nằm trong
-            danh sách truy cập — trang này chỉ dành cho chủ sở hữu.
+            <span className="font-mono text-[13px]">{state.email}</span> {t("is not on the access list — this page is owner-only.")}
           </p>
           <button onClick={retrySignIn}
             className="mt-6 w-full rounded-full bg-white border border-line-deep px-6 py-3 font-bold text-[14px] shadow-hard press-hard">
-            Thử tài khoản khác
+            {t("Try another account")}
           </button>
         </Card>
       </Shell>
@@ -54,21 +52,20 @@ export default function AuthGate({ children }: { children: ReactNode }) {
           <LogoMark />
           <p className="font-mono text-[11px] tracking-[0.18em] text-mute font-medium flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-peri inline-block" aria-hidden />
-            RIÊNG TƯ · CHỈ TÀI KHOẢN ĐƯỢC MỜI
+            {t("PRIVATE · INVITED ACCOUNTS ONLY")}
           </p>
           <h1 className="mt-3 text-[28px] font-extrabold tracking-tight leading-[1.1]">
-            Đăng nhập để mở <em className="accent-italic">hàng đợi</em> việc làm.
+            {t("Sign in to open the job")} <em className="accent-italic">{t("queue")}</em>.
           </h1>
           <p className="mt-3 text-slate text-[14px] leading-relaxed">
-            Dashboard săn việc này là của riêng bạn — đăng nhập bằng Google tài khoản
-            công việc để tiếp tục.
+            {t("This job-hunting dashboard is yours — sign in with your work Google account to continue.")}
           </p>
           <button onClick={signIn}
             className="mt-6 w-full rounded-full bg-white border border-line-deep px-6 py-3 font-bold text-[14px] text-ink shadow-hard press-hard flex items-center justify-center gap-3">
-            <GoogleG /> Đăng nhập bằng Google
+            <GoogleG /> {t("Sign in with Google")}
           </button>
           <p className="mt-4 font-mono text-[11px] text-faint text-center">
-            phiên do Supabase Auth cấp · chỉ 1 tài khoản Google được phép
+            {t("session issued by Supabase Auth · only 1 Google account allowed")}
           </p>
         </Card>
       </Shell>
@@ -98,7 +95,7 @@ function LogoMark() {
   return (
     <div className="flex items-center gap-3 mb-5">
       <Logo size={44} />
-      <span className="font-extrabold tracking-tight text-[19px]">Săn Việc</span>
+      <span className="font-extrabold tracking-tight text-[19px]">Job Hunt</span>
     </div>
   );
 }

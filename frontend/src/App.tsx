@@ -15,6 +15,7 @@ import RoleSwitcher from "./RoleSwitcher";
 import SectionHead from "./SectionHead";
 import Logo from "./Logo";
 import { useAuth } from "./auth";
+import { useT, useLang } from "./i18n";
 
 const PAGE_SIZE = 50;
 
@@ -23,9 +24,9 @@ declare global {
 }
 
 const SORTS = [
-  { v: "auto", label: "Khớp CV" },
-  { v: "posted", label: "Mới đăng" },
-  { v: "salary", label: "Lương cao" },
+  { v: "auto", label: "CV match" },
+  { v: "posted", label: "Newest" },
+  { v: "salary", label: "Highest salary" },
 ];
 
 // Route: "/" Inbox · "/thong-ke" Thống kê · "/cong-ty" Công ty.
@@ -40,6 +41,8 @@ export default function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const { state: authState, signOut } = useAuth();
   const authEmail = authState.status === "ok" ? authState.email : null;
+  const t = useT();
+  const { lang, setLang } = useLang();
 
   const { filters, page } = useMemo(() => parseFilters(searchParams), [searchParams]);
   // JD đang mở = param ?job=source:source_id → Back/Escape thu gọn, deep-link được.
@@ -146,7 +149,7 @@ export default function App() {
     filters.since_hours === 0 && filters.relevance_min === 0;
 
   const today = new Date();
-  const dateLine = `T${today.getDay() === 0 ? "CN" : today.getDay() + 1} · ${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const dateLine = `${t("T")}${today.getDay() === 0 ? t("CN") : today.getDay() + 1} · ${String(today.getDate()).padStart(2, "0")}/${String(today.getMonth() + 1).padStart(2, "0")}`;
 
   return (
     <div className="min-h-screen paper-bg text-ink">
@@ -154,13 +157,13 @@ export default function App() {
       <header className="fixed top-3 inset-x-0 z-30 px-3">
         <div className="mx-auto max-w-[1120px] rounded-2xl bg-white/90 backdrop-blur border border-line shadow-[0_2px_6px_rgba(24,28,64,0.05),0_16px_40px_-20px_rgba(24,28,64,0.25)]">
           <div className="flex items-center justify-between gap-2 px-3 py-2">
-            <button onClick={goHome} className="flex items-center gap-2.5 hover:opacity-80 transition shrink-0" aria-label="Home">
+            <button onClick={goHome} className="flex items-center gap-2.5 hover:opacity-80 transition shrink-0" aria-label={t("Home")}>
               <Logo size={34} />
               <span className="font-extrabold tracking-tight text-[16px] hidden sm:block">Săn Việc</span>
               <span className="hidden lg:inline font-mono text-[11px] text-faint">{dateLine}</span>
             </button>
-            <nav className="flex rounded-full bg-paper p-1" aria-label="Chế độ xem">
-              {([["/", "Inbox", "end"], ["/thong-ke", "Thống kê", ""], ["/cong-ty", "Công ty", ""]] as const).map(([to, label, end]) => (
+            <nav className="flex rounded-full bg-paper p-1" aria-label={t("View mode")}>
+              {([["/", "Inbox", "end"], ["/thong-ke", t("Stats"), ""], ["/cong-ty", t("Companies"), ""]] as const).map(([to, label, end]) => (
                 <NavLink key={to} to={to} end={end === "end"}
                   className={({ isActive }) => `px-3.5 md:px-4 py-1.5 rounded-full text-[13px] font-semibold transition
                     ${isActive ? "bg-navy text-white shadow-sm" : "text-slate hover:text-ink"}`}>{label}</NavLink>
@@ -168,10 +171,15 @@ export default function App() {
             </nav>
             <div className="hidden md:flex items-center gap-1.5 font-mono text-[11px] text-faint">
               <span className="px-2 py-1 rounded-full bg-paper border border-line">+{stats.data?.new_24h ?? "–"}/24h</span>
-              <span className="px-2 py-1 rounded-full bg-paper border border-line">{total} việc</span>
+              <span className="px-2 py-1 rounded-full bg-paper border border-line">{total} {t("jobs")}</span>
             </div>
+            <button onClick={() => setLang(lang === "en" ? "vi" : "en")}
+              className="px-2.5 py-1.5 rounded-full text-[11px] font-mono font-semibold border border-line bg-white text-slate hover:border-line-deep"
+              aria-label={t("Language")}>
+              {lang === "en" ? "VI" : "EN"}
+            </button>
             {authEmail && (
-              <button onClick={signOut} title={`Đăng xuất (${authEmail})`} aria-label="Đăng xuất"
+              <button onClick={signOut} title={`${t("Sign out")} (${authEmail})`} aria-label={t("Sign out")}
                 className="w-7 h-7 shrink-0 rounded-full bg-navy text-white text-[11px] font-extrabold flex items-center justify-center hover:bg-peri transition">
                 {authEmail[0].toUpperCase()}
               </button>
@@ -185,9 +193,9 @@ export default function App() {
         <div className="flex items-center gap-3 flex-wrap py-2.5 text-[13px]">
           <ProvinceFilter value={filters.city} onChange={city => setF({ ...filters, city })} />
           <span className="ml-auto flex gap-2 flex-wrap font-mono text-[11px]">
-            {health.data?.sources.map(s => <span key={s.source} title={`${s.finished_at || "Chưa chạy"} · ${s.note || s.status}`}
-              className={s.healthy ? "text-mint" : "text-coral"}>● {s.source}{s.status === "partial" ? " (một phần)" : ""}</span>)}
-            {health.isError && <span className="text-coral">Không tải được trạng thái crawler</span>}
+            {health.data?.sources.map(s => <span key={s.source} title={`${s.finished_at || t("Not run yet")} · ${s.note || s.status}`}
+              className={s.healthy ? "text-mint" : "text-coral"}>● {s.source}{s.status === "partial" ? ` (${t("partial")})` : ""}</span>)}
+            {health.isError && <span className="text-coral">Failed to load crawler status</span>}
           </span>
         </div>
       </div>
@@ -198,7 +206,7 @@ export default function App() {
         </main>
       ) : view === "stats" ? (
         <main className="max-w-[1120px] mx-auto px-4 md:px-6 pb-10 space-y-5">
-          <SectionHead eyebrow="THỊ TRƯỜNG" title={<>Toàn cảnh theo <em className="accent-italic">bộ lọc</em> hiện tại.</>} />
+          <SectionHead eyebrow={t("MARKET")} title={<>{t("Overview by")} <em className="accent-italic">{t("current filters")}</em>.</>} />
           <div className="grid gap-4 md:grid-cols-2">
             <TrendChart trend={trend.data} />
             <ExperienceChart stats={stats.data} onPick={(v) => goInboxWith({ ...filters, exp: v === "4" || v === "5+" ? "5" : v })} />
@@ -212,14 +220,13 @@ export default function App() {
           <section className="pt-7 pb-5">
             <p className="flex items-center gap-2 font-mono text-[11px] tracking-[0.18em] text-mute font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-peri inline-block" aria-hidden />
-              4 HƯỚNG ỨNG TUYỂN · ≤ 2 NĂM KN · CÒN MỞ · 14 NGÀY
+              {t("4 TARGET ROLES · ≤ 2 YEARS EXP · OPEN · 14 DAYS")}
             </p>
             <h1 className="mt-3 text-[34px] md:text-[44px] font-extrabold tracking-tight leading-[1.05]">
-              Chỉ xem việc <em className="accent-italic">đúng nghề</em>,<br className="hidden md:block" /> sẵn sàng <em className="accent-italic">apply.</em>
+              {t("Only view")} <em className="accent-italic">{t("relevant roles")}</em>,<br className="hidden md:block" /> {t("ready to")} <em className="accent-italic">{t("apply.")}</em>
             </h1>
             <p className="mt-3 text-slate max-w-xl text-[15px] leading-relaxed">
-              Hàng đợi tự xếp theo độ khớp CV — crawl liên tục từ ITviec, TopCV, TopDev,
-              tin được kiểm tra còn mở trước khi đến tay bạn.
+              {t("Queue auto-ranked by CV match — continuously crawled from ITviec, TopCV, TopDev, jobs verified open before reaching you.")}
             </p>
           </section>
 
@@ -234,22 +241,22 @@ export default function App() {
             <div className="relative flex-1">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-faint" aria-hidden>⌕</span>
               <input ref={searchRef} value={searchInput} onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Tìm kỹ năng, công ty, chức danh…  (phím /)"
+                placeholder={t("Search skills, company, title…  (press /)")}
                 className="w-full bg-white border border-line rounded-full pl-10 pr-4 py-2.5 text-[14px] text-ink placeholder:text-faint shadow-sm focus:outline-none focus:border-peri focus:ring-2 focus:ring-peri/20" />
             </div>
-            <select value={filters.sort} onChange={(e) => setF({ ...filters, sort: e.target.value })} aria-label="Sắp xếp"
+            <select value={filters.sort} onChange={(e) => setF({ ...filters, sort: e.target.value })} aria-label={t("Sort")}
               className="bg-white border border-line rounded-full px-3.5 py-2.5 text-sm text-slate shadow-sm focus:outline-none focus:border-peri">
-              {SORTS.map((o) => <option key={o.v} value={o.v}>Xếp: {o.label}</option>)}
+              {SORTS.map((o) => <option key={o.v} value={o.v}>{t("Sort:")} {o.label}</option>)}
             </select>
           </div>
 
           {searchingAll && (
             <div className="mt-2.5 flex items-center gap-2 flex-wrap text-[12px] text-slate">
-              <span>Đang tìm trên toàn bộ tin còn mở — không giới hạn hướng ứng tuyển, kinh nghiệm hay trạng thái đã xem.</span>
+              <span>{t("Searching all open jobs — no limit on target roles, experience, or review status.")}</span>
               <button
                 onClick={() => goInboxWith({ ...DEFAULT_FILTERS, q: filters.q, city: filters.city, source: filters.source })}
                 className="px-2.5 py-1 rounded-full border border-line bg-white text-[11px] font-semibold text-slate hover:border-line-deep">
-                Chỉ tìm trong hàng đợi
+                {t("Only search in queue")}
               </button>
             </div>
           )}
@@ -259,7 +266,7 @@ export default function App() {
           <div ref={listTopRef} className="scroll-mt-24 pt-5" />
           <div className="flex items-baseline justify-between mb-2.5">
             <h2 className="font-bold text-[17px]">
-              {filters.q.trim() ? "Kết quả tìm kiếm" : "Hàng đợi apply"}
+              {filters.q.trim() ? t("Search results") : t("Apply queue")}
               <span className="font-mono font-medium text-sm text-faint ml-2">{total}</span>
             </h2>
             {pages > 1 && (
@@ -272,20 +279,20 @@ export default function App() {
               </div>
             )}
           </div>
-          {jobsQ.isError && <p role="alert" className="text-coral py-4">Không tải được việc làm. Hãy kiểm tra kết nối dashboard.</p>}
+          {jobsQ.isError && <p role="alert" className="text-coral py-4">Failed to load jobs. Please check dashboard connection.</p>}
           <JobTable jobs={jobsQ.data?.jobs} loading={jobsQ.isPending} onChanged={() => { jobsQ.refetch(); stats.refetch(); }}
             listKey={JSON.stringify(filters) + page} openKey={openJob} onToggleOpen={toggleOpenJob} />
 
           <p className="font-mono text-[11px] text-faint mt-8 flex flex-wrap gap-x-3 gap-y-1 items-center">
-            <span>phím tắt:</span>
-            <span><Kbd>j</Kbd>/<Kbd>k</Kbd> di chuyển</span>
-            <span><Kbd>Enter</Kbd> mở job</span>
-            <span><Kbd>a</Kbd> mở + apply</span>
-            <span><Kbd>s</Kbd> sao việc này</span>
-            <span><Kbd>v</Kbd> đã xem</span>
-            <span><Kbd>x</Kbd> ẩn</span>
-            <span><Kbd>/</Kbd> tìm kiếm</span>
-            <span className="ml-auto hidden md:inline">crawl 15 phút/lượt · itviec · topcv · topdev</span>
+            <span>{t("shortcuts:")}</span>
+            <span><Kbd>j</Kbd>/<Kbd>k</Kbd> {t("navigate")}</span>
+            <span><Kbd>Enter</Kbd> {t("open job")}</span>
+            <span><Kbd>a</Kbd> {t("open + apply")}</span>
+            <span><Kbd>s</Kbd> {t("star")}</span>
+            <span><Kbd>v</Kbd> {t("viewed")}</span>
+            <span><Kbd>x</Kbd> {t("hide")}</span>
+            <span><Kbd>/</Kbd> {t("search")}</span>
+            <span className="ml-auto hidden md:inline">{t("crawl every 15 min · itviec · topcv · topdev")}</span>
           </p>
         </main>
       )}

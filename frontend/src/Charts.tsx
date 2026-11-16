@@ -3,6 +3,7 @@ import {
   Bar, BarChart, CartesianGrid, ComposedChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis, Area, AreaChart,
 } from "recharts";
 import type { Job } from "./api";
+import { useT } from "./i18n";
 import { BUCKET_ORDER, salaryBucket } from "./salary";
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -17,6 +18,7 @@ const TOOLTIP = {
 };
 
 export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] } | undefined }) {
+  const t = useT();
   const sources = trend?.sources || [];
   const data = trend?.days || [];
   return (
@@ -41,6 +43,7 @@ export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] 
 export function CategoryChart({ stats }: { stats: {
   top_categories: { category: string; n: number }[]
 } | undefined }) {
+  const t = useT();
   const data = (stats?.top_categories || []).slice(0, 12).map((c) => ({ name: c.category, n: c.n }));
   return (
     <Panel title="Top ngành / category">
@@ -50,7 +53,7 @@ export function CategoryChart({ stats }: { stats: {
           <XAxis type="number" allowDecimals={false} tick={TICK} />
           <YAxis type="category" dataKey="name" tick={TICK} width={120} />
           <Tooltip contentStyle={TOOLTIP} />
-          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#5566ff" radius={[0, 4, 4, 0]} />
+          <Bar isAnimationActive={false} dataKey="n" name={t("jobs")} fill="#5566ff" radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Panel>
@@ -61,6 +64,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
   top_exp?: { experience: string; n: number }[];
   topcv_top_exp: { experience: string; n: number }[]
 } | undefined; onPick: (name: string) => void }) {
+  const t = useT();
   const data = stats?.top_exp || stats?.topcv_top_exp || [];
   return (
     <Panel title="Năm kinh nghiệm — click để lọc">
@@ -70,7 +74,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
           <XAxis dataKey="experience" tick={TICK} />
           <YAxis allowDecimals={false} tick={TICK} />
           <Tooltip contentStyle={TOOLTIP} />
-          <Bar isAnimationActive={false} dataKey="n" name="số job" fill="#1d2249" radius={[4, 4, 0, 0]} />
+          <Bar isAnimationActive={false} dataKey="n" name={t("jobs")} fill="#1d2249" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </Panel>
@@ -78,6 +82,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
 }
 
 export function SalaryChart({ jobs }: { jobs: Job[] }) {
+  const t = useT();
   const data = useMemo(() => {
     const buckets = new Map<string, number>(BUCKET_ORDER.map((b) => [b, 0]));
     for (const j of jobs) {
@@ -94,7 +99,7 @@ export function SalaryChart({ jobs }: { jobs: Job[] }) {
           <XAxis dataKey="range" tick={TICK} />
           <YAxis tick={TICK} allowDecimals={false} />
           <Tooltip contentStyle={TOOLTIP} />
-          <Area isAnimationActive={false} dataKey="n" name="số job" stroke="#0da678" fill="#0da67822" strokeWidth={2} />
+          <Area isAnimationActive={false} dataKey="n" name={t("jobs")} stroke="#0da678" fill="#0da67822" strokeWidth={2} />
         </AreaChart>
       </ResponsiveContainer>
     </Panel>
