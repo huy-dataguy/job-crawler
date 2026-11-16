@@ -22,7 +22,7 @@ export function TrendChart({ trend }: { trend: { sources: string[]; days: any[] 
   const sources = trend?.sources || [];
   const data = trend?.days || [];
   return (
-    <Panel title="Việc mới đăng theo ngày (14 ngày, ước tính từ 'đăng N ngày trước')">
+    <Panel title={t("New jobs posted per day (14 days, estimated from 'posted N days ago')")}>
       <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID} />
@@ -46,7 +46,7 @@ export function CategoryChart({ stats }: { stats: {
   const t = useT();
   const data = (stats?.top_categories || []).slice(0, 12).map((c) => ({ name: c.category, n: c.n }));
   return (
-    <Panel title="Top ngành / category">
+    <Panel title={t("Top categories")}>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={data} layout="vertical" margin={{ left: 80 }}>
           <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={GRID} />
@@ -67,7 +67,7 @@ export function ExperienceChart({ stats, onPick }: { stats: {
   const t = useT();
   const data = stats?.top_exp || stats?.topcv_top_exp || [];
   return (
-    <Panel title="Năm kinh nghiệm — click để lọc">
+    <Panel title={t("Years of experience — click to filter")}>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data} onClick={(s: any) => s?.activeLabel && onPick(s.activeLabel)}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID} />
@@ -92,7 +92,7 @@ export function SalaryChart({ jobs }: { jobs: Job[] }) {
     return BUCKET_ORDER.map((b) => ({ range: b, n: buckets.get(b) || 0 }));
   }, [jobs]);
   return (
-    <Panel title="Phân bố lương (triệu VND/tháng, ước tính từ lương công khai)">
+    <Panel title={t("Salary distribution (million VND/month, estimated from public salary)")}>
       <ResponsiveContainer width="100%" height={200}>
         <AreaChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={GRID} />

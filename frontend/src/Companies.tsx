@@ -78,7 +78,7 @@ async function get<T>(url: string): Promise<T> {
 }
 
 // "Hunt via company": choose size → choose company → xem ngay họ hiring vị trí
-// gì → nhảy thẳng vào Inbox lọc sẵn. Mặc định chỉ hiện công ty hiring.
+// gì → nhảy thẳng vào Inbox lọc sẵn. Mặc định chỉ hiện companies hiring.
 export default function Companies({ city, onFilterCompany }: { city: string; onFilterCompany?: (c: Company) => void }) {
   const [q, setQ] = useState("");
   const [source, setSource] = useState("");
@@ -90,7 +90,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
   const [toolsOpen, setToolsOpen] = useState(false);
   const [page, setPage] = useState(1);
   // Card đang mở sống trong URL (?co=source:slug) — Back from Inbox keeps
-  // detail card, share direct link to 1 công ty được.
+  // detail card, share direct link to 1 companies được.
   const [searchParams, setSearchParams] = useSearchParams();
   const openCo = searchParams.get("co");
   const coKey = (c: Company) => `${c.source}:${c.company_slug || c.company}`;
@@ -140,9 +140,9 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
 
   return (
     <div className="space-y-4">
-      <SectionHead eyebrow="HUNT VIA COMPANY" title={<>Chọn công ty, xem ngay họ <em className="accent-italic">what they are hiring</em>.</>} />
+      <SectionHead eyebrow="HUNT VIA COMPANY" title={<>Choose a company, see <em className="accent-italic">what they are hiring</em>.</>} />
       <p className="text-slate text-[15px] max-w-2xl -mt-1">
-        Cách săn thứ hai: choose a suitable headcount, inspect open roles,
+        Second hunting method: choose a suitable headcount, inspect open roles,
         then jump to Inbox filtered by that company.
       </p>
 
@@ -151,14 +151,14 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
         <Kpi label="Company profiles by source" value={stats.data?.total ?? "–"} sub={`${stats.data?.by_source.map(s=>`${s.source} ${s.n}`).join(" · ") || ""}`} />
         <Kpi label="Has size" value={stats.data?.enriched ?? "–"} sub={`${coverage}% coverage`} />
         <Kpi label="Hiring" value={stats.data?.hiring ?? "–"} sub="has verified open jobs" accent />
-        <Kpi label="Has IT signal / công nghệ" value={stats.data?.it_profiles ?? "–"} sub={`${stats.data?.websites ?? 0} website · ${stats.data?.addresses ?? 0} address`} />
+        <Kpi label="Has IT signal / tech" value={stats.data?.it_profiles ?? "–"} sub={`${stats.data?.websites ?? 0} website · ${stats.data?.addresses ?? 0} address`} />
       </div>
 
       {/* Headcount — main filter for company hunt */}
       <div className="soft-card rounded-2xl p-4">
         <div className="flex items-baseline justify-between mb-2.5">
           <h2 className="font-bold text-[14px]">Headcount</h2>
-          {bucket && <button onClick={()=>{setBucket(""); setPage(1);}} className="font-mono text-xs text-peri-deep hover:text-peri">bỏ lọc quy mô ×</button>}
+          {bucket && <button onClick={()=>{setBucket(""); setPage(1);}} className="font-mono text-xs text-peri-deep hover:text-peri">clear size filter ×</button>}
         </div>
         <div className="flex gap-1.5 flex-wrap">
           {BUCKETS.map(b=>{
@@ -183,7 +183,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
               <BarChart data={BUCKETS.map(b => ({bucket: b, n: stats.data!.buckets.find(x=>x.bucket===b)?.n || 0}))}>
                 <XAxis dataKey="bucket" tick={TICK} axisLine={false} tickLine={false} />
                 <YAxis hide />
-                <Bar dataKey="n" name="công ty" radius={[4,4,0,0]} onClick={(d:any)=>{ if(d?.bucket){ setBucket(d.bucket===bucket?"":d.bucket); setPage(1); }}}>
+                <Bar dataKey="n" name="companies" radius={[4,4,0,0]} onClick={(d:any)=>{ if(d?.bucket){ setBucket(d.bucket===bucket?"":d.bucket); setPage(1); }}}>
                   {BUCKETS.map(b=> <Cell key={b} fill={BUCKET_COLOR[b] || "#5566ff"} opacity={bucket && bucket!==b ? 0.3 : 1} cursor="pointer" />)}
                 </Bar>
               </BarChart>
@@ -204,7 +204,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
           ))}
         </div>
         <button onClick={()=>{setItOnly(itOnly?0:1);setPage(1);}} aria-pressed={!!itOnly}
-          className={`px-3.5 py-1.5 rounded-full text-xs border font-medium transition ${itOnly ? "text-peri-deep border-peri/50 bg-peri-soft" : "text-slate border-line bg-white"}`}>IT / công nghệ {itOnly ? "✓" : ""}</button>
+          className={`px-3.5 py-1.5 rounded-full text-xs border font-medium transition ${itOnly ? "text-peri-deep border-peri/50 bg-peri-soft" : "text-slate border-line bg-white"}`}>IT / tech {itOnly ? "✓" : ""}</button>
         <button onClick={()=>{setHiring(hiring?0:1); setPage(1);}} aria-pressed={!!hiring}
           className={`px-3.5 py-1.5 rounded-full text-xs font-bold border transition ${hiring ? "bg-mint text-white border-mint shadow-sm" : "bg-white border-line text-slate hover:border-line-deep"}`}>
           💼 Hiring {hiring ? "✓" : ""}
@@ -213,7 +213,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
           className={`px-3.5 py-1.5 rounded-full text-xs font-semibold border transition ${toolsOpen ? "bg-paper-deep text-ink border-line-deep" : "bg-white text-slate border-line hover:border-line-deep"}`}>
           Data tools {toolsOpen ? "▴" : "▾"}
         </button>
-        <span className="font-mono text-xs text-faint self-center ml-auto">{total} công ty</span>
+        <span className="font-mono text-xs text-faint self-center ml-auto">{total} companies</span>
       </div>
 
       {toolsOpen && (
@@ -241,7 +241,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
         !companies.data?.companies.length ? (
           <div className="soft-card rounded-2xl py-16 text-center">
             <p className="font-bold">No matching companies</p>
-            <p className="text-sm text-slate mt-1">Thử bỏ "Hiring", change size or keyword.</p>
+            <p className="text-sm text-slate mt-1">Try clearing "Hiring", change size or keyword.</p>
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
@@ -255,7 +255,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full shrink-0 ${SOURCE_DOT[c.source] || "bg-faint"}`} title={c.source} />
                     <h3 className="font-bold text-[15px] truncate flex-1">{c.company}</h3>
-                    {!!c.is_hiring && <span className="px-1.5 py-0.5 rounded-md bg-mint-soft text-mint text-[10px] font-bold shrink-0">ĐANG TUYỂN</span>}
+                    {!!c.is_hiring && <span className="px-1.5 py-0.5 rounded-md bg-mint-soft text-mint text-[10px] font-bold shrink-0">HIRING</span>}
                   </div>
                   <div className="flex items-center gap-2 flex-wrap text-xs">
                     {c.size_raw ? (
@@ -269,7 +269,7 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
                   <div className="flex items-end justify-between gap-2 mt-0.5">
                     <div>
                       <div className="font-extrabold text-[22px] leading-none">{c.job_count}</div>
-                      <div className="font-mono text-[10px] uppercase tracking-wider text-faint mt-0.5">việc còn mở</div>
+                      <div className="font-mono text-[10px] uppercase tracking-wider text-faint mt-0.5">open jobs</div>
                     </div>
                     <div className="flex flex-wrap gap-1 justify-end max-w-[70%]">
                       {(c.hiring_roles || []).map(r => (
@@ -283,13 +283,13 @@ export default function Companies({ city, onFilterCompany }: { city: string; onF
                   <div className="flex gap-1.5 pt-1 border-t border-line" onClick={e => e.stopPropagation()}>
                     <button onClick={()=>onFilterCompany?.(c)} disabled={!c.job_count}
                       className="flex-1 px-3 py-1.5 rounded-[10px] bg-peri text-white text-xs font-bold border border-ink shadow-hard-sm press-hard disabled:opacity-40 disabled:cursor-not-allowed">
-                      {c.job_count ? `View ${c.job_count} việc →` : "No open jobs"}
+                      {c.job_count ? `View ${c.job_count} jobs →` : "No open jobs"}
                     </button>
                     {c.detail_url && <a href={c.detail_url} target="_blank" rel="noreferrer"
                       className="px-3 py-1.5 rounded-[10px] bg-white border border-line text-xs font-medium text-slate hover:border-peri hover:text-peri">Open source ↗</a>}
                     <button onClick={()=>toggleCo(key)} aria-expanded={isExp}
                       className="px-3 py-1.5 rounded-[10px] bg-white border border-line text-xs font-medium text-slate hover:border-line-deep">
-                      {isExp ? "Collapse ▴" : "Chi tiết ▾"}
+                      {isExp ? "Collapse ▴" : "Details ▾"}
                     </button>
                   </div>
                 </article>
@@ -349,7 +349,7 @@ function CompanyDetail({ company: c, city, onFilterCompany }: { company: Company
         <span className="text-faint">{c.fetched_at ? `Check ${new Date(c.fetched_at).toLocaleString("vi-VN")}` : "Awaiting enrichment"}</span>
       </div>
       <dl className="grid gap-2 sm:grid-cols-2 text-sm text-slate">
-        {c.website && <div><dt className="text-xs text-faint">Website / tuyển dụng</dt><dd><a className="text-peri-deep break-all" href={c.website} target="_blank" rel="noreferrer">{c.website}</a></dd></div>}
+        {c.website && <div><dt className="text-xs text-faint">Website / careers</dt><dd><a className="text-peri-deep break-all" href={c.website} target="_blank" rel="noreferrer">{c.website}</a></dd></div>}
         {c.address && <div><dt className="text-xs text-faint">Address</dt><dd className="whitespace-pre-line">{c.address}</dd></div>}
         {c.company_type && <div><dt className="text-xs text-faint">Model</dt><dd>{c.company_type}</dd></div>}
         {c.country && <div><dt className="text-xs text-faint">Country</dt><dd>{c.country}</dd></div>}
@@ -359,7 +359,7 @@ function CompanyDetail({ company: c, city, onFilterCompany }: { company: Company
       {!!c.tech_stack?.length && <div className="text-xs text-peri-deep font-medium">Skills: {c.tech_stack.join(" · ")}</div>}
       {!!c.public_links?.length && <div className="flex gap-3 flex-wrap text-xs">{c.public_links.map(l=><a key={l.url} className="text-peri-deep" href={l.url} target="_blank" rel="noreferrer">{l.label || l.url} ↗</a>)}</div>}
       {c.it_evidence && <p className="text-xs text-faint">IT evidence: {c.it_evidence}</p>}
-      {c.enrichment_error && <p className="text-xs text-coral">Last profile fetch failed; hệ thống sẽ thử lại.</p>}
+      {c.enrichment_error && <p className="text-xs text-coral">Last profile fetch failed; system will retry.</p>}
       {c.description && <p className="text-sm text-slate leading-relaxed line-clamp-4">{c.description}</p>}
       <div>
         <div className="flex items-baseline justify-between mb-1.5">
@@ -382,7 +382,7 @@ function CompanyDetail({ company: c, city, onFilterCompany }: { company: Company
                   <button onClick={()=>openJob(j, true)} title="Open job & mark applied"
                     className="px-2 py-1 rounded-md bg-peri text-white text-[11px] font-semibold hover:bg-peri-deep">Apply</button>
                   <button onClick={()=>void mark(j, { starred: j.starred ? 0 : 1 })} aria-pressed={!!j.starred}
-                    title={j.starred ? "Bỏ sao" : "Star this job"}
+                    title={j.starred ? "Unstar" : "Star this job"}
                     className={`px-2 py-1 rounded-md border text-[11px] ${j.starred ? "bg-amber-soft border-amber text-amber" : "border-line text-faint hover:border-line-deep"}`}>
                     {j.starred ? "★" : "☆"}
                   </button>

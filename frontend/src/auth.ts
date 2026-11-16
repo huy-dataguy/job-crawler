@@ -48,7 +48,7 @@ export function useAuth() {
       if (email && email === ALLOWED_EMAIL) {
         setState({ status: "ok", email });
       } else {
-        deniedEmail.current = email || "không rõ tài khoản";
+        deniedEmail.current = email || "unknown account";
         setState({ status: "denied", email: deniedEmail.current });
         supabase.auth.signOut(); // session của người lạ không nằm lại trên máy
       }
