@@ -7,7 +7,7 @@ export default function Logo({ size = 32, shadow = true, className = "" }: {
 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" fill="none" role="img"
-      aria-label="Săn Việc" className={className}>
+      aria-label="Job Hunt" className={className}>
       <defs>
         <linearGradient id="sv-lens" x1="18" y1="16" x2="42" y2="42" gradientUnits="userSpaceOnUse">
           <stop stopColor="#5566ff" />

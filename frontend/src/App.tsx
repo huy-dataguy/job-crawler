@@ -159,7 +159,7 @@ export default function App() {
           <div className="flex items-center justify-between gap-2 px-3 py-2">
             <button onClick={goHome} className="flex items-center gap-2.5 hover:opacity-80 transition shrink-0" aria-label={t("Home")}>
               <Logo size={34} />
-              <span className="font-extrabold tracking-tight text-[16px] hidden sm:block">Săn Việc</span>
+              <span className="font-extrabold tracking-tight text-[16px] hidden sm:block">Job Hunt</span>
               <span className="hidden lg:inline font-mono text-[11px] text-faint">{dateLine}</span>
             </button>
             <nav className="flex rounded-full bg-paper p-1" aria-label={t("View mode")}>
