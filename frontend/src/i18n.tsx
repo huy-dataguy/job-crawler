@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 export type Lang = "en" | "vi";
 
-const STORAGE_KEY = "jc_lang";
+const STORAGE_KEY = "jc_lang_v2";
 
 // English is the source/default language: t(key) returns key when no vi override.
 const VI: Record<string, string> = {};
