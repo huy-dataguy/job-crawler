@@ -1,0 +1,376 @@
+{
+ "_type": "jobs",
+ "aggregations": {
+  "categories": [],
+  "status": [
+   {
+    "key": 3,
+    "doc_count": 3867
+   }
+  ]
+ },
+ "data": [
+  {
+   "id": 2146596,
+   "title": "Kỹ sư cơ điện [điện / điện nhẹ/ cấp thoát nước/ HVAC / phòng cháy chữa cháy]",
+   "is_content_image": false,
+   "is_content_image_enabled": false,
+   "owned_id": 96338,
+   "company": {
+    "id": 96338,
+    "display_name": "CÔNG TY CỔ PHẦN HAWEE CƠ ĐIỆN",
+    "image_logo": "https://assets.saramin.vn/images/2026/11/16/Saramin-mQLky1707DmNILkW6Gt9iPnPfN71lXfE_1640850405____f5049ca3ab887402c5faae99e71f96ad-1794800079.png",
+    "slug": "cong-ty-co-phan-hawee-co-dien",
+    "detail_url": "https://topdev.vn/companies/cong-ty-co-phan-hawee-co-dien-96338",
+    "is_followed": false
+   },
+   "extra_skills": [],
+   "skills_str": "Electricity / Electronics / Refrigeration / Industrial Electricity",
+   "skills_arr": [
+    "Electricity / Electronics / Refrigeration / Industrial Electricity"
+   ],
+   "skills_ids": [
+    11270
+   ],
+   "experiences_str": "Not required",
+   "contract_types_str": "Fulltime",
+   "job_types_str": "Trực tiếp",
+   "job_levels_str": "Nhân viên",
+   "job_levels_ids": [
+    1617
+   ],
+   "addresses": {
+    "address_region_ids": [
+     "01",
+     "79"
+    ],
+    "address_region_list": "Thành phố Hà Nội, Thành phố Hồ Chí Minh",
+    "address_region_array": [
+     "Thành phố Hà Nội",
+     "Thành phố Hồ Chí Minh"
+    ],
+    "full_addresses": [
+     "Lô D2 khu đấu giá quyền sử dụng đất, Phường Hà Đông, Thành phố Hà Nội",
+     "CN Hồ Chí Minh, Thành phố Hồ Chí Minh"
+    ],
+    "sort_addresses": "Hà Nội - Hồ Chí Minh",
+    "collection_addresses": [
+     {
+      "id": 210165,
+      "ward": {
+       "id": null,
+       "value": null
+      },
+      "province": {
+       "id": "01",
+       "value": "Thành phố Hà Nội"
+      },
+      "district": {
+       "id": null,
+       "value": null
+      },
+      "postal_code": "100000",
+      "full_address": "Lô D2 khu đấu giá quyền sử dụng đất, Phường Hà Đông, Thành phố Hà Nội",
+      "latitude": null,
+      "longitude": null,
+      "street": "Lô D2 khu đấu giá quyền sử dụng đất, Phường Hà Đông"
+     },
+     {
+      "id": 210166,
+      "ward": {
+       "id": null,
+       "value": null
+      },
+      "province": {
+       "id": "79",
+       "value": "Thành phố Hồ Chí Minh"
+      },
+      "district": {
+       "id": null,
+       "value": null
+      },
+      "postal_code": "700000",
+      "full_address": "CN Hồ Chí Minh, Thành phố Hồ Chí Minh",
+      "latitude": null,
+      "longitude": null,
+      "street": "CN Hồ Chí Minh"
+     }
+    ]
+   },
+   "status_display": "Open",
+   "detail_url": "https://topdev.vn/detail-jobs/ky-su-co-dien-dien-dien-nhe-cap-thoat-nuoc-hvac-phong-chay-chua-chay-cong-ty-co-phan-hawee-co-dien-2146596",
+   "slug": "ky-su-co-dien-dien-dien-nhe-cap-thoat-nuoc-hvac-phong-chay-chua-chay-cong-ty-co-phan-hawee-co-dien",
+   "salary": {
+    "is_negotiable": "0",
+    "unit": "MONTH",
+    "min": "2*******",
+    "max": "3*******",
+    "currency": "VND",
+    "min_estimate": 0,
+    "max_estimate": 0,
+    "currency_estimate": "VND",
+    "value": "2******* - 3******* VND",
+    "min_filter": 20000000,
+    "max_filter": 35000000
+   },
+   "is_salary_visible": false,
+   "expires": {
+    "date": "16-12-2026",
+    "datetime": "00:00:00 16-12-2026",
+    "since": "4 weeks from now"
+   },
+   "published": {
+    "date": "16-11-2026",
+    "datetime": "00:00:00 16-11-2026",
+    "since": "14 hours ago"
+   },
+   "refreshed": {
+    "date": "16-11-2026",
+    "datetime": "10:44:30 16-11-2026",
+    "since": "4 hours ago"
+   },
+   "is_applied": false,
+   "is_followed": false,
+   "is_blacklisted": false,
+   "recalled_at": null,
+   "is_remove_cv": false,
+   "is_viewed": false,
+   "promotions": []
+  },
+  {
+   "id": 2146167,
+   "title": "DevOps Engineer (Middle/Senior)",
+   "is_content_image": false,
+   "is_content_image_enabled": false,
+   "owned_id": 83764,
+   "company": {
+    "id": 83764,
+    "display_name": "CyberLogitec Vietnam Co., Ltd.",
+    "image_logo": "https://assets.saramin.vn/images/2026/04/02/TopDev-1753953510621-CLTLogoB-1775120559.png",
+    "slug": "cyberlogitec-vietnam-co-ltd",
+    "detail_url": "https://topdev.vn/companies/cyberlogitec-vietnam-co-ltd-83764",
+    "is_followed": false
+   },
+   "extra_skills": [],
+   "skills_str": "System Admin, Python, DevOps, Cloud, CI/CD",
+   "skills_arr": [
+    "System Admin",
+    "Python",
+    "DevOps",
+    "Cloud",
+    "CI/CD"
+   ],
+   "skills_ids": [
+    31,
+    34,
+    213,
+    1298,
+    1587
+   ],
+   "experiences_str": "4 years",
+   "contract_types_str": "Fulltime",
+   "job_types_str": "Trực tiếp",
+   "job_levels_str": "Chuyên viên cấp cao, Chuyên viên",
+   "job_levels_ids": [
+    8665,
+    12506
+   ],
+   "addresses": {
+    "address_region_ids": [
+     "79"
+    ],
+    "address_region_list": "Thành phố Hồ Chí Minh",
+    "address_region_array": [
+     "Thành phố Hồ Chí Minh"
+    ],
+    "full_addresses": [
+     "SCETPA Building, 19A Cộng Hòa, Phường 12, Quận Tân Bình, Thành phố Hồ Chí Minh"
+    ],
+    "sort_addresses": "Quận Tân Bình, Hồ Chí Minh",
+    "collection_addresses": [
+     {
+      "id": 105536,
+      "ward": {
+       "id": "26971",
+       "value": "Phường 12"
+      },
+      "province": {
+       "id": "79",
+       "value": "Thành phố Hồ Chí Minh"
+      },
+      "district": {
+       "id": "766",
+       "value": "Quận Tân Bình"
+      },
+      "postal_code": "700000",
+      "full_address": "SCETPA Building, 19A Cộng Hòa, Phường 12, Quận Tân Bình, Thành phố Hồ Chí Minh",
+      "latitude": null,
+      "longitude": null,
+      "street": "SCETPA Building, 19A Cộng Hòa"
+     }
+    ]
+   },
+   "status_display": "Open",
+   "detail_url": "https://topdev.vn/detail-jobs/devops-engineer-middle-senior-cyberlogitec-vietnam-co-ltd-2146167",
+   "slug": "devops-engineer-middle-senior-cyberlogitec-vietnam-co-ltd",
+   "salary": {
+    "is_negotiable": "1",
+    "unit": "MONTH",
+    "min": "*",
+    "max": "*",
+    "currency": "VND",
+    "min_estimate": "0",
+    "max_estimate": "0",
+    "currency_estimate": "VND",
+    "value": null,
+    "min_filter": 0,
+    "max_filter": 0
+   },
+   "is_salary_visible": false,
+   "expires": {
+    "date": "12-12-2026",
+    "datetime": "00:00:00 12-12-2026",
+    "since": "3 weeks from now"
+   },
+   "published": {
+    "date": "12-11-2026",
+    "datetime": "00:00:00 12-11-2026",
+    "since": "4 days ago"
+   },
+   "refreshed": {
+    "date": "12-11-2026",
+    "datetime": "16:17:10 12-11-2026",
+    "since": "3 days ago"
+   },
+   "is_applied": false,
+   "is_followed": false,
+   "is_blacklisted": false,
+   "recalled_at": null,
+   "is_remove_cv": false,
+   "is_viewed": false,
+   "promotions": []
+  },
+  {
+   "id": 2146166,
+   "title": "AI Engineer",
+   "is_content_image": false,
+   "is_content_image_enabled": false,
+   "owned_id": 92833,
+   "company": {
+    "id": 92833,
+    "display_name": "Globaltech",
+    "image_logo": "https://assets.saramin.vn/images/2022/03/11/TopDev-GlobalTech-Logo-1646984495.png",
+    "slug": "globaltech",
+    "detail_url": "https://topdev.vn/companies/globaltech-92833",
+    "is_followed": false
+   },
+   "extra_skills": [],
+   "skills_str": "Python, NLP, AI",
+   "skills_arr": [
+    "Python",
+    "NLP",
+    "AI"
+   ],
+   "skills_ids": [
+    34,
+    1415,
+    1555
+   ],
+   "experiences_str": "2 years",
+   "contract_types_str": "Fulltime",
+   "job_types_str": "Trực tiếp",
+   "job_levels_str": "Nhân viên",
+   "job_levels_ids": [
+    1617
+   ],
+   "addresses": {
+    "address_region_ids": [
+     "79"
+    ],
+    "address_region_array": [
+     "Thành phố Hồ Chí Minh"
+    ],
+    "collection_addresses": [
+     {
+      "province": {
+       "id": "79",
+       "value": "Thành phố Hồ Chí Minh"
+      },
+      "street": ".",
+      "district": {
+       "id": "768",
+       "value": "Quận Phú Nhuận"
+      },
+      "latitude": null,
+      "id": 175382,
+      "ward": {
+       "id": "27061",
+       "value": "Phường 02"
+      },
+      "full_address": "., Phường 02, Quận Phú Nhuận, Thành phố Hồ Chí Minh",
+      "postal_code": "700000",
+      "longitude": null
+     }
+    ],
+    "full_addresses": [
+     "., Phường 02, Quận Phú Nhuận, Thành phố Hồ Chí Minh"
+    ],
+    "sort_addresses": "Quận Phú Nhuận, Hồ Chí Minh",
+    "address_region_list": "Thành phố Hồ Chí Minh"
+   },
+   "status_display": "Open",
+   "detail_url": "https://topdev.vn/detail-jobs/ai-engineer-globaltech-2146166",
+   "slug": "ai-engineer-globaltech",
+   "salary": {
+    "min_estimate": "0",
+    "currency_estimate": "VND",
+    "unit": "MONTH",
+    "min": "*",
+    "max": "*",
+    "min_filter": 0,
+    "is_negotiable": "1",
+    "currency": "VND",
+    "max_filter": 0,
+    "value": null,
+    "max_estimate": "0"
+   },
+   "is_salary_visible": false,
+   "expires": {
+    "date": "12-12-2026",
+    "datetime": "00:00:00 12-12-2026",
+    "since": "3 weeks from now"
+   },
+   "published": {
+    "date": "12-11-2026",
+    "datetime": "00:00:00 12-11-2026",
+    "since": "4 days ago"
+   },
+   "refreshed": {
+    "date": "12-11-2026",
+    "datetime": "15:06:58 12-11-2026",
+    "since": "3 days ago"
+   },
+   "is_applied": false,
+   "is_followed": false,
+   "is_blacklisted": false,
+   "recalled_at": null,
+   "is_remove_cv": false,
+   "is_viewed": false,
+   "promotions": []
+  }
+ ],
+ "links": {
+  "first": null,
+  "last": null,
+  "prev": null,
+  "next": "https://api.topdev.vn/td/v2/jobs/?page=2"
+ },
+ "meta": {
+  "total": 6000,
+  "per_page": "3",
+  "current_page": 1,
+  "last_page": 2000,
+  "from": 1,
+  "to": 3
+ }
+}
