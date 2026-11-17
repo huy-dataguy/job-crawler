@@ -1,6 +1,6 @@
 [project]
 name = "job-crawler"
-version = "0.1.0"
+version = "1.2.0"
 description = "IT job crawler (itviec + topcv) HCMC — clean data, Windmill scheduler, dashboard"
 requires-python = ">=3.11"
 dependencies = [

@@ -5,6 +5,7 @@ data/
 recon/
 .env
 nohup.out
+out.html
 frontend/dist/
 .vercel/
 .vercel

@@ -14,7 +14,7 @@ age_min() { # tuổi (phút) của thời điểm cho trước "YYYY-MM-DD HH:MM
 echo "═══ 1. Windmill (scheduler chính — UI: http://localhost:8132/runs) ═══"
 if curl -fsS -m 4 http://localhost:8132/api/version >/dev/null 2>&1 \
    || curl -fsS -m 4 http://server:8000/api/version >/dev/null 2>&1; then
-  echo "  ✓ Windmill đang chạy — lịch: crawl :00/:15/:30/:45 · sync :10/:25/:40/:55 · companies :20 · deep 4:37"
+  echo "  ✓ Windmill đang chạy — crawl 9h/12h/14h/16h (topdev :00 · itviec :02 · topcv :04) · health mỗi giờ"
   echo "    (systemd timers đã tắt — Windmill là nơi duy nhất quyết định lịch)"
 else
   echo "  ✗ Windmill KHÔNG chạy → scripts/local/windmill.sh up"
@@ -46,8 +46,8 @@ now = datetime.datetime.now(datetime.timezone.utc)
 for source, status, ts in rows:
     dt = datetime.datetime.fromisoformat(ts)
     age = int((now - dt).total_seconds() // 60)
-    # companies chạy giờ → cho phép 75 phút; 3 nguồn chính 15 phút → 45 phút
-    limit = 75 if source == "companies" else 45
+    # Crawl 4 lượt/ngày + companies 2 lượt/ngày → cho phép 18 giờ.
+    limit = 1080
     if age > limit:
         print(f"BAD|{source}|lượt cuối {age} phút trước — QUÁ CŨ (máy mới mở? đợi nhịp bù)")
     elif status in ("ok", "partial"):

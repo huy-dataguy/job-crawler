@@ -82,10 +82,10 @@ def test_topdev_crawl_stops_when_page_has_nothing_new(monkeypatch):
 
     def fake_api(path, **params):
         calls.append(params.get("page"))
-        return payload
+        return payload["data"], {"last_page": 10}
 
     monkeypatch.setattr(topdev, "_warm", lambda: None)
-    monkeypatch.setattr(topdev, "_api", fake_api)
+    monkeypatch.setattr(topdev, "_api_page", fake_api)
     jobs, pages = topdev.crawl(max_pages=4)
     assert pages == 2 and calls == [1, 2]
     assert len(jobs) == len(payload["data"])

@@ -1,6 +1,7 @@
 # Cấu hình `wmill` CLI cho workspace của dự án job-crawler.
 # Đăng nhập:  wmill login --base-url http://localhost:8131   (sau đó chọn/tạo workspace)
-# Đồng bộ:    wmill sync push
+# Nguồn chuẩn của script/schedule là windmill/provision.py — chạy file đó,
+# không dùng `wmill sync push` cho u/jobcrawler (dễ ghi đè pipeline bash).
 baseUrl: http://localhost:8131
 workspace_id: jobcrawler
 default_workspace: jobcrawler

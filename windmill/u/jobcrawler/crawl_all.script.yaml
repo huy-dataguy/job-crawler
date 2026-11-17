@@ -1,9 +1,0 @@
-summary: ''
-description: ''
-lock: '!inline u/jobcrawler/crawl_all.script.lock'
-kind: script
-schema:
-  $schema: https://json-schema.org/draft/2020-12/schema
-  type: object
-  properties: {}
-  required: []

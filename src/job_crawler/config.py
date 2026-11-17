@@ -34,6 +34,8 @@ QUICK_PAGES_TOPCV = int(os.environ.get("JC_QUICK_PAGES_TOPCV", "2"))
 QUICK_PAGES_TOPDEV = int(os.environ.get("JC_QUICK_PAGES_TOPDEV", "2"))
 # Raw = bằng chứng điều tra ngắn hạn: nén gzip + xoá quá TTL sau khi đã vào SQLite.
 RAW_RETENTION_HOURS = float(os.environ.get("JC_RAW_RETENTION_HOURS", "48"))
+# raw.sweep() quét toàn bộ raw dir — throttle để 3 pipeline không quét liên tục.
+RAW_SWEEP_MINUTES = float(os.environ.get("JC_RAW_SWEEP_MINUTES", "15"))
 DELAY_BETWEEN_REQUESTS = float(os.environ.get("JC_DELAY", "2.0"))  # giây, lịch sự với nguồn
 IMPERSONATE = os.environ.get("JC_IMPERSONATE", "chrome136")
 # Giãn cách theo host (giây). TopCV nằm sau Cloudflare nên cần chậm + jitter;
@@ -86,5 +88,14 @@ ITVIEC_COMPANY_PAGES = int(os.environ.get("JC_ITVIEC_COMPANY_PAGES", "120"))
 TOPCV_SITEMAP_PAGES = int(os.environ.get("JC_TOPCV_SITEMAP_PAGES", "10"))
 COMPANY_ENRICH_BUDGET = int(os.environ.get("JC_COMPANY_ENRICH_BUDGET", "90"))
 JOB_DETAIL_BUDGET = int(os.environ.get("JC_JOB_DETAIL_BUDGET", "60"))
+# Ghi SQLite theo lô khi không cần Telegram từng job (deep): giảm fsync/FTS.
+COMMIT_BATCH = int(os.environ.get("JC_COMMIT_BATCH", "50"))
 OPEN_CHECK_HOURS = int(os.environ.get("JC_OPEN_CHECK_HOURS", "24"))
 RECENT_DAYS = int(os.environ.get("JC_RECENT_DAYS", "14"))
+
+# --- Health/alert -----------------------------------------------------------
+# Nguồn không có lượt chạy thành công trong khoảng này → Telegram cảnh báo.
+PIPELINE_STALE_MINUTES = int(os.environ.get("JC_PIPELINE_STALE_MINUTES", "1080"))
+COMPANIES_STALE_MINUTES = int(os.environ.get("JC_COMPANIES_STALE_MINUTES", "1080"))
+# Lượt đang chạy (chưa finished) quá lâu → coi như treo/sập.
+RUNNING_STALE_MINUTES = int(os.environ.get("JC_RUNNING_STALE_MINUTES", "60"))

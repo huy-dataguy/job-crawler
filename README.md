@@ -1,137 +1,90 @@
-<div align="center">
+# Săn Việc / Job Hunt
 
-# Săn Việc
+Job-intelligence pipeline cá nhân cho thị trường việc làm IT Việt Nam. Hệ thống thu thập ITviec, TopCV và TopDev, chuẩn hóa dữ liệu, đánh giá độ phù hợp với CV, xác minh job còn mở và hiển thị trên dashboard riêng tư.
 
-**A private job-intelligence pipeline for the Vietnamese IT market.**
+## Dự án làm gì?
 
-Crawls three job boards every 15 minutes, scores every posting against my CV,
-maintains a 65k+ company directory, and serves it as a personal web app.
+- Crawl job từ 3 nguồn, dedupe theo `(source, source_id)` và lưu lịch sử phát hiện.
+- Chuẩn hóa title, skills, level, kinh nghiệm, lương, địa điểm và role.
+- Chấm điểm phù hợp CV (0–100) theo skills, title, role và kinh nghiệm.
+- Kiểm tra lại trang detail để xác định deadline, trạng thái mở/đóng và tránh job đã hết hạn.
+- Thu thập/enrich danh bạ công ty; liên kết công ty với các job đang tuyển.
+- Đồng bộ dữ liệu từ SQLite local lên Supabase; React dashboard chạy qua FastAPI/Vercel.
 
-[![CI](https://github.com/huy-dataguy/job-crawler/actions/workflows/ci.yml/badge.svg)](https://github.com/huy-dataguy/job-crawler/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green.svg)
+## Kỹ thuật chính
 
-<br/>
+- Source-specific adapters cho HTML và JSON API; fallback JSON-LD.
+- TLS impersonation (`curl_cffi`), warm-up session, rate limit theo host, jitter, retry/backoff và `Retry-After`.
+- Nhận diện Cloudflare challenge và schema drift để dừng pipeline thay vì ghi dữ liệu rác.
+- Raw evidence nén gzip, định danh SHA-256, manifest và replay parser không cần gọi lại mạng.
+- SQLite WAL + FTS5 cho data plane local; idempotent upsert và detail verification theo ngân sách.
+- Windmill orchestration, per-source locks, health watchdog và Telegram alert.
+- Supabase/Postgres serving với dữ liệu precompute, GIN indexes, Google Auth và RLS.
 
-<img src="docs/screenshot.png" alt="San Viec job inbox — CV-match scoring, role targeting, company filters" width="900" />
-
-<br/>
-
-**[Live app](https://job-crawler-theta.vercel.app)** (private, Google auth) ·
-**[Operations guide (Vietnamese)](docs/operations.md)**
-
-</div>
-
-## Why
-
-Job postings for Data Engineering / Backend / Fullstack / Data Science roles are
-scattered across three Vietnamese boards, mixed with irrelevant roles and
-senior-only requirements. Scrolling them manually every day doesn't scale.
-
-This project turns that into an automated feed: a crawler fetches listings
-every 15 minutes, normalizes them into one schema, scores each job 0–100
-against my profile (skills, target roles, experience ceiling), verifies listings
-are still open, and exposes everything through a private web app with an
-apply-first inbox.
-
-## Features
-
-- **Match-scored inbox** — every job scored 0–100 against my CV (skill weights ×
-  title/category factors); defaults to my four target roles and a ≤2-year
-  experience ceiling.
-- **Fresh-discovery filter** — show only jobs the crawler first found today
-  (or in the last 3/7 days), independent of the source's posted date.
-- **Open-state verification** — listings are re-checked against the source
-  page (posted date, expiry, 404) so dead postings don't waste apply clicks.
-- **Company directory** — 65k+ profiles harvested from public sitemaps,
-  enriched hourly (size, industry, tech stack, benefits), browsable as "who is
-  hiring" cards with open roles per company.
-- **Keyboard-first inbox** — `j/k` navigate, `a` apply, `s` star, `v` viewed,
-  `x` hide; filters, open job details and scroll position live in the URL.
-- **Stats under the same filters** — trends, experience distribution, salary
-  bands; every KPI respects the active filter set.
-- **Private by default** — production is locked to a single Google account.
-
-## Architecture
+## Kiến trúc
 
 ```text
-personal machine (data plane)                 cloud (serving plane)
-┌────────────────────────────────┐            ┌─────────────────────────┐
-│ Windmill orchestration         │            │ Supabase Postgres       │
-│  crawl :00/:15/..  (quick)     │   sync     │  RLS-enforced           │
-│  deep  04:37       (full sweep)│ ────────►  │                         │
-│  enrich :20 hourly             │  precomp:  │ Vercel                  │
-│  sync  :10/:25/..              │  arrays +  │  static React SPA       │
-│ SQLite (WAL, FTS5)             │  GIN idx   │  FastAPI serverless     │
-│ raw evidence: sha256+gzip,48h  │            └────────────┬────────────┘
-└────────────────────────────────┘                         ▼
-                                    job-crawler-theta.vercel.app
+ITviec / TopCV / TopDev
+        ↓
+Crawler → raw evidence → normalize / score / verify
+        ↓
+SQLite (WAL + FTS5) ──sync──> Supabase Postgres
+        ↓                         ↓
+  Windmill + health          FastAPI + React / Vercel
 ```
 
-The two planes are independent: job data flows only through the sync job
-(every 15 min), code changes deploy through Git. One person operates both.
+## Chạy local
 
-## Tech stack
-
-React 19 · TypeScript · Vite · Tailwind CSS v4 · TanStack Query · React Router ·
-Recharts · FastAPI · SQLite (WAL, FTS5) · PostgreSQL (Supabase, RLS) ·
-psycopg2 · curl_cffi (TLS impersonation, no headless browser) · BeautifulSoup ·
-Windmill · Vercel · uv · pytest
-
-## Getting started
-
-Prerequisites: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 18+,
-Docker (for Windmill).
+Yêu cầu: Python 3.11+, [uv](https://docs.astral.sh/uv/), Node.js 18+ và Docker (nếu dùng Windmill).
 
 ```bash
-git clone https://github.com/huy-dataguy/job-crawler.git && cd job-crawler
+git clone https://github.com/huy-dataguy/job-crawler.git
+cd job-crawler
 
-uv sync --extra dev                                   # backend deps
-npm --prefix frontend ci && npm --prefix frontend run build
-uv run job-crawler migrate                            # schema (auto-backup if DB exists)
-uv run job-crawler all                                # first crawl
-scripts/local/windmill.sh up                          # scheduler + UI at localhost:8132
+uv sync --extra dev
+npm --prefix frontend ci
+
+uv run job-crawler migrate
+uv run job-crawler all
+uv run pytest -q
 ```
 
-Dashboard runs at `localhost:8130`, Windmill UI at `localhost:8132`
-(`admin@windmill.dev` / `changeme`). Containers restart with the machine —
-no manual steps after reboot.
+Crawler chạy được với cấu hình mặc định. Nếu dùng Telegram, Supabase hoặc deploy cloud, tạo `.env` theo [docs/operations.md](docs/operations.md).
 
-## Operations
+Chạy dashboard local:
 
 ```bash
-scripts/local/check.sh            # health across 7 layers (scheduler → crawl → sync → cloud)
-scripts/local/windmill.sh runs    # last 10 pipeline runs
-uv run job-crawler raw-gc         # prune raw evidence manually
-uv run pytest -q                  # 60 tests
+uv run uvicorn dashboard.main:app --host 127.0.0.1 --port 8130
 ```
 
-Configuration lives in `.env` — full reference, schedules, storage capacity
-and troubleshooting in [docs/operations.md](docs/operations.md).
+Mở `http://127.0.0.1:8130`. Để chạy scheduler local:
 
-## Deployment
+```bash
+scripts/local/windmill.sh up
+```
 
-Production runs on Vercel (SPA + FastAPI serverless) with Supabase Postgres
-behind row-level security. `scripts/local/deploy_vercel.sh` deploys manually;
-connecting the GitHub repo in Vercel enables deploy-on-push. Initial setup
-(Google OAuth, provider, RLS) is documented in
-[docs/security.md](docs/security.md).
+## Lệnh thường dùng
 
-## Notable engineering
+```bash
+uv run job-crawler itviec       # crawl một nguồn
+uv run job-crawler companies    # harvest + enrich công ty
+uv run job-crawler recheck      # xác minh lại job detail
+uv run job-crawler replay       # parse lại raw evidence, không gọi mạng
+uv run job-crawler health       # kiểm tra freshness / pipeline health
+uv run job-crawler verify       # boot gate trên persisted data
+uv run job-crawler raw-gc       # dọn raw evidence quá hạn
+```
 
-- **No headless browser** — all three boards are scraped over HTTP with TLS
-  fingerprint impersonation; TopDev's React Server Components are parsed by
-  streaming JSON extraction after their stack migration.
-- **SQLite → Postgres without changing the API contract** — hard-to-port Python
-  logic (accent-insensitive province matching, role matching, open-state rules)
-  is precomputed into array columns with GIN indexes at sync time, so the
-  serverless API filters by index only.
-- **Query optimization** — replaced correlated subqueries scanning a 65k-row
-  directory per row: jobs endpoint 74s → 0.3s, companies 21.7s → 0.2s.
-- **Raw evidence with lifecycle** — content-addressed, gzip-compressed,
-  TTL-pruned after ingestion: from +7.4 GB/day unbounded to a ~2 GB steady state.
+Thông tin cấu hình, lịch chạy, sync Supabase và xử lý sự cố: [docs/operations.md](docs/operations.md). Thiết lập private deployment: [docs/security.md](docs/security.md).
+
+## Kiểm tra chất lượng
+
+```bash
+uv run pytest -q
+npm --prefix frontend run build
+```
+
+CI chạy backend tests và frontend production build trên mỗi push/PR.
 
 ## License
 

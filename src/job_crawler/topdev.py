@@ -44,12 +44,18 @@ _LEVEL_MAP = (
 )
 
 
-def _api(path: str, **params):
+def _api_page(path: str, **params) -> tuple[object, dict]:
+    """Gọi API và giữ `meta` (total/last_page) để biết coverage thật."""
     payload = fetch_json("topdev", config.TOPDEV_API + path, session=_S,
                          params={k: v for k, v in params.items() if v is not None})
     if isinstance(payload, dict):
-        return payload.get("data")
-    return payload
+        return payload.get("data"), payload.get("meta") or {}
+    return payload, {}
+
+
+def _api(path: str, **params):
+    data, _ = _api_page(path, **params)
+    return data
 
 
 def _warm() -> None:
@@ -207,23 +213,42 @@ def parse_listing(payload) -> list[dict]:
 def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
     """Quét listing mới nhất trước; dừng sớm khi cả trang không còn job mới.
 
-    Trả về (jobs, pages_crawled).
+    `max_pages <= 0` = full sweep: đọc tới `meta.last_page` (coverage đầy đủ),
+    không dừng sớm dù gặp job đã biết. Trả về (jobs, pages_crawled).
     """
     _warm()
-    pages = max_pages or config.MAX_PAGES_TOPDEV
+    setting = config.MAX_PAGES_TOPDEV if max_pages is None else max_pages
+    full = setting is not None and setting <= 0
+    limit = None if full else setting
     page_size = min(config.TOPDEV_PAGE_SIZE, _MAX_PAGE_SIZE)
     all_jobs: dict[str, dict] = {}
     pages_crawled = 0
-    for page in range(1, pages + 1):
-        payload = _api("/jobs", page=page, page_size=page_size, region_ids=79,
-                       ordering=config.TOPDEV_ORDERING, **{"fields[job]": LIST_FIELDS})
+    page = 1
+    while True:
+        if limit is not None and page > limit:
+            break
+        if page > 500:  # chốt an toàn nếu API trả last_page sai
+            break
+        payload, meta = _api_page(
+            "/jobs", page=page, page_size=page_size, region_ids=79,
+            ordering=config.TOPDEV_ORDERING, **{"fields[job]": LIST_FIELDS})
         found = parse_listing(payload)
+        if not found:
+            break  # meta.total toàn quốc; region 79 hết job trước last_page
         fresh = [j for j in found if j["source_id"] not in all_jobs]
         pages_crawled += 1
         for job in fresh:
             all_jobs[job["source_id"]] = job
-        if not fresh and page > 1:
+        try:
+            last_page = int(meta.get("last_page") or 0)
+        except (TypeError, ValueError):
+            last_page = 0
+        if last_page and page >= last_page:
             break
+        # Incremental: cả trang toàn job đã biết → các trang sau cũ hơn, dừng.
+        if not fresh and page > 1 and not full:
+            break
+        page += 1
     jobs = list(all_jobs.values())
     if not jobs:
         raise RuntimeError("TopDev API has no jobs: check source/parser")

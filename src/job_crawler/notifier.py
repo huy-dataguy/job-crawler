@@ -77,6 +77,45 @@ def format_job(job: dict) -> str:
     return message
 
 
+def format_pipeline_alert(source: str, exc: BaseException, *, stage: str = "crawl",
+                          run_id: int | None = None, pages: int = 0,
+                          found: int = 0, new_count: int = 0) -> str:
+    """Render a pipeline failure/crash alert without leaking secrets."""
+    when = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
+    crashed = isinstance(exc, (SystemExit, KeyboardInterrupt))
+    title = "PIPELINE DỪNG" if crashed else "PIPELINE LỖI"
+    lines = [
+        f"🛑 <b>{title} · {_text(source.upper())}</b>",
+        "",
+        f"Bước: <b>{_text(stage)}</b>",
+        f"Lỗi: <code>{_text(type(exc).__name__)}</code> — {_text(str(exc)[:400], 'không có thông điệp')}",
+    ]
+    if run_id is not None:
+        lines.append(f"Run: #{int(run_id)}")
+    if pages or found or new_count:
+        lines.append(f"Tiến độ: {int(pages)} trang · {int(found)} job · {int(new_count)} mới")
+    lines.extend(["", f"🕒 {_text(when)}"])
+    return "\n".join(lines)[:3900]
+
+
+def format_health_issues(issues: list[dict], *, recovered: bool = False) -> str:
+    """Render the watchdog result. One message for all unhealthy sources."""
+    when = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")
+    if recovered:
+        return ("✅ <b>Job Crawler đã hồi phục</b>\n\n"
+                "Tất cả pipeline nguồn đã có lượt chạy thành công gần đây.\n"
+                f"🕒 {_text(when)}")
+    lines = ["⚠️ <b>Pipeline cần kiểm tra</b>", ""]
+    for issue in issues[:12]:
+        reason = issue.get("reason") or "unknown"
+        age = issue.get("age_minutes")
+        tail = f" · {int(age)} phút" if age is not None else ""
+        lines.append(f"• <b>{_text(str(issue.get('source') or '?').upper())}</b>: "
+                     f"{_text(reason)}{tail}")
+    lines.extend(["", "Mở Windmill → Runs để xem log từng pipeline.", f"🕒 {_text(when)}"])
+    return "\n".join(lines)[:3900]
+
+
 @dataclass
 class TelegramNotifier:
     token: str
@@ -146,6 +185,12 @@ class TelegramNotifier:
 
     def send_job(self, job: dict) -> dict:
         return self._post(format_job(job))
+
+    def send_pipeline_alert(self, source: str, exc: BaseException, **kw) -> dict:
+        return self._post(format_pipeline_alert(source, exc, **kw))
+
+    def send_health_issues(self, issues: list[dict], *, recovered: bool = False) -> dict:
+        return self._post(format_health_issues(issues, recovered=recovered))
 
     def send_test(self) -> dict:
         now = datetime.now().astimezone().strftime("%d/%m/%Y %H:%M:%S %Z")

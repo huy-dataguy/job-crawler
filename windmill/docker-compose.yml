@@ -60,6 +60,11 @@ services:
     depends_on:
       server: { condition: service_started }
     networks: [windmill-network]
+    # Windmill chỉ chạy 1 job/worker (bash không dùng native mode). Scale bằng
+    # nhiều container để deep/companies không chặn lượt quick 5-10 phút;
+    # SQLite WAL + per-source lock tự xử lý ghi song song.
+    deploy:
+      replicas: 4
 
 volumes:
   db_data:

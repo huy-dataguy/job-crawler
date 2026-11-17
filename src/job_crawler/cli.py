@@ -15,18 +15,34 @@ def main() -> None:
     signal.signal(signal.SIGTERM, stop)
     parser = argparse.ArgumentParser(description="Continuous Vietnam IT jobs and company discovery")
     parser.add_argument("target", nargs="?", default="all",
-                        choices=["all", *pipeline.SOURCES, "companies", "enrich", "recheck", "replay", "migrate", "verify", "telegram-test", "raw-gc"])
+                        choices=["all", *pipeline.SOURCES, "companies", "enrich", "recheck", "replay", "migrate", "verify", "health", "telegram-test", "raw-gc"])
     args = parser.parse_args()
     if args.target == "verify":
         from .verification import verify
         raise SystemExit(0 if verify()["ok"] else 1)
     config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if args.target == "health":
+        # Watchdog chạy độc lập: đọc crawl_runs, gửi Telegram một lần/sự cố.
+        result = pipeline.health_check()
+        print(json.dumps(result, ensure_ascii=False), flush=True)
+        raise SystemExit(0 if result["ok"] else 1)
     if args.target == "raw-gc":  # chỉ file raw + flock manifest riêng — khỏi writer.lock
         from . import raw as _raw
         print(json.dumps(_raw.sweep(), ensure_ascii=False), flush=True)
         raise SystemExit(0)
 
-    with (config.DATA_DIR / "writer.lock").open("a") as lock:
+    # Mỗi nguồn một lock riêng để 3 pipeline chạy song song được; SQLite WAL tự
+    # serialize ghi. `all` vẫn dùng writer.lock toàn cục.
+    def _lock_name(target: str) -> str:
+        if target in pipeline.SOURCES:
+            return f"source-{target}.lock"
+        if target in ("companies", "enrich"):
+            return "companies.lock"
+        if target == "recheck":
+            return "recheck.lock"
+        return "writer.lock"
+
+    with (config.DATA_DIR / _lock_name(args.target)).open("a") as lock:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:

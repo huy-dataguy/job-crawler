@@ -1,7 +1,0 @@
-enabled: true
-schedule: "0 */15 * * * *"
-timezone: Asia/Ho_Chi_Minh
-script_path: u/jobcrawler/crawl_all
-is_flow: false
-args: {}
-no_flow_overlap: true

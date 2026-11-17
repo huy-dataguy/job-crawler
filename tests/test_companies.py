@@ -86,7 +86,6 @@ def test_harvest_topcv_sitemap(tmp_path: Path, monkeypatch):
     def fake_get(url, **kw):
         return FakeResp(index_xml if "sitemap/companies.xml" in url else page_xml)
     monkeypatch.setattr(cc._S, "get", fake_get)
-    monkeypatch.setattr(cc.time, "sleep", lambda s: None)
 
     out = cc.harvest_topcv(conn)
     assert out["rows_touched"] == 2
@@ -114,7 +113,6 @@ def test_enrich_missing_budget_and_priority(tmp_path: Path, monkeypatch):
                 "Senior Data Engineer</a></html>")
 
     monkeypatch.setattr(cc, "_fetch", fake_fetch)
-    monkeypatch.setattr(cc.time, "sleep", lambda s: None)
     monkeypatch.setattr(cc.config, "COMPANY_ENRICH_BUDGET", 1)
 
     out = cc.enrich_missing(conn)  # budget 1 → chỉ công ty đang tuyển

@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-import time
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
@@ -35,9 +34,6 @@ _S = curl_requests.Session(impersonate="chrome136")
 TOPCV_SITEMAP_INDEX = "https://www.topcv.vn/sitemap/companies.xml"
 ITVIEC_COMPANIES_URL = "https://itviec.com/companies"
 TOPDEV_COMPANIES_URL = "https://topdev.vn/companies"
-
-_SITEMAP_DELAY = 0.4   # sitemap là file tĩnh, giãn cách nhẹ
-_DETAIL_DELAY = 1.5    # trang detail công ty — lịch sự với nguồn
 
 _META_TABLE = """
 CREATE TABLE IF NOT EXISTS harvest_meta (
@@ -221,7 +217,6 @@ def harvest_topcv(conn: sqlite3.Connection, *, max_pages: int | None = None) -> 
                 break
         except Exception:
             failed += 1
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
     conn.commit()
     return {'source':'topcv','pages':processed,'subs_total':len(subs),'subs_done':len(done & set(subs)),
             'subs_remaining':len(set(subs)-done),'subs_failed':failed,'rows_touched':updated}
@@ -318,7 +313,6 @@ def harvest_topdev(conn: sqlite3.Connection) -> dict:
         conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_next_page',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(str(page),))
         conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_previous_slugs',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(sorted(previous)),))
         conn.commit()
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
     conn.execute("INSERT INTO harvest_meta(key,value) VALUES ('topdev_next_page',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(str(page),))
     conn.commit()
     return {'source':'topdev','pages':pages,'companies':touched,'next_page':page,
@@ -525,5 +519,4 @@ def enrich_missing(conn: sqlite3.Connection, *, budget: int | None = None) -> di
             if isinstance(exc,SourceError) and exc.status in (403,429):
                 blocked_sources.add(r['source'])
         conn.commit()
-        time.sleep(config.DELAY_BETWEEN_REQUESTS)
     return {'budget':budget,'attempted':done+errors,'enriched':done,'fetch_errors':errors,'jobs_ingested':jobs_ingested}
