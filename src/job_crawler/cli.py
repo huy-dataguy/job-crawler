@@ -62,7 +62,9 @@ def main() -> None:
             from .details import verify_source
             conn = store.connect(config.DB_PATH)
             try:
-                result = {source:verify_source(conn, source) for source in pipeline.SOURCES}
+                result = {source: verify_source(conn, source,
+                                                budget=config.RECHECK_BUDGETS.get(source))
+                          for source in pipeline.SOURCES}
             finally:
                 conn.close()
         elif args.target == "replay":

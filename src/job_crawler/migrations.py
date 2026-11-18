@@ -31,6 +31,12 @@ def migrate(path: Path) -> dict:
         with sqlite3.connect(path) as old:
             version = old.execute("PRAGMA user_version").fetchone()[0]
             if version >= 5:
+                try:
+                    old.execute("PRAGMA busy_timeout=60000")
+                    old.execute("PRAGMA journal_mode=WAL")
+                    old.commit()
+                except sqlite3.OperationalError:
+                    pass
                 return {"version": version, "changed": False}
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             backup = path.parent / "backups" / f"{path.stem}-{stamp}.db"

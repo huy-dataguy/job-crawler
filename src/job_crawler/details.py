@@ -68,11 +68,19 @@ def _same_title(a: str, b: str) -> bool:
 def parse_detail(html: str, job: dict, *, now: datetime | None = None) -> dict:
     now = now or datetime.now(LOCAL_TZ)
     soup = BeautifulSoup(html, "html.parser")
-    posting = next((o for o in structured_objects(soup)
-                    if "JobPosting" in ([o.get("@type")] if isinstance(o.get("@type"), str)
-                                       else o.get("@type", []))
-                    and _same_title(str(o.get("title", "")), job["title"])), None)
+    _posting_types = lambda o: ([o.get("@type")] if isinstance(o.get("@type"), str)
+                                 else o.get("@type", []))
+    all_postings = [o for o in structured_objects(soup)
+                    if "JobPosting" in _posting_types(o)]
+    posting = next((o for o in all_postings
+                    if _same_title(str(o.get("title", "")), job["title"])), None)
     if not posting:
+        if not all_postings:
+            # Trang không còn JobPosting (job gỡ/redirect) → coi là đã đóng,
+            # tránh đếm lỗi và làm stale open evidence.
+            return {"status": "closed", "status_reason": "source_no_jobposting",
+                    "detail_checked_at": now.isoformat(timespec="seconds"),
+                    "detail_error": None}
         # A page with no matching posting cannot renew a job's open evidence.
         raise ValueError("No matching JobPosting: unavailable or source schema changed")
     expiry = timestamp(posting.get("validThrough"), deadline=True)
@@ -176,15 +184,21 @@ def _detail_adapter(source: str):
 
 def verify_source(conn: sqlite3.Connection, source: str, *, budget: int | None = None) -> dict:
     budget = config.JOB_DETAIL_BUDGET if budget is None else budget
+    # Closed jobs only need a slow sweep (a listing can reappear); open jobs
+    # must be re-verified before OPEN_CHECK_HOURS elapses, otherwise they fall
+    # out of the serving filter. Re-checking closed jobs every cycle used to
+    # consume most of the budget and starved the open set.
     rows = conn.execute(
         """SELECT * FROM jobs WHERE source=? AND
-          (detail_checked_at IS NULL OR julianday(detail_checked_at)<julianday('now','-12 hours'))
+          (detail_checked_at IS NULL OR julianday(detail_checked_at)<julianday('now',?))
           AND (detail_attempted_at IS NULL OR julianday(detail_attempted_at)<julianday('now','-2 hours'))
           AND (posted_at IS NULL OR julianday(posted_at)>=julianday('now','-35 days') OR status='open')
+          AND (status IS NULL OR status!='closed' OR detail_checked_at IS NULL
+               OR julianday(detail_checked_at)<julianday('now','-168 hours'))
           ORDER BY CASE WHEN posted_at IS NULL OR julianday(posted_at)>=julianday('now','-14 days')
                         THEN 0 ELSE 1 END,
                    detail_checked_at IS NOT NULL, detail_checked_at, relevance DESC, last_seen_at DESC
-          LIMIT ?""", (source, budget)).fetchall()
+          LIMIT ?""", (source, f"-{config.DETAIL_RECHECK_HOURS} hours", budget)).fetchall()
     checked = opened = closed = errors = 0
     adapter = _detail_adapter(source)
     for row in rows:
@@ -206,9 +220,10 @@ def verify_source(conn: sqlite3.Connection, source: str, *, budget: int | None =
             merged = {**job, **detail}
             relevance.annotate(merged)
             detail.update(relevance=merged["relevance"], matched=merged["matched"])
-            conn.execute("UPDATE jobs SET " + ",".join(f"{k}=?" for k in detail) +
-                         ",is_active=? WHERE source=? AND source_id=?",
-                         list(detail.values()) + [int(detail["status"] == "open"), source, job["source_id"]])
+            store._retry_locked(conn, lambda: conn.execute(
+                "UPDATE jobs SET " + ",".join(f"{k}=?" for k in detail) +
+                ",is_active=? WHERE source=? AND source_id=?",
+                list(detail.values()) + [int(detail["status"] == "open"), source, job["source_id"]]))
             store._sync_fts(conn, conn.execute("SELECT rowid FROM jobs WHERE source=? AND source_id=?",
                             (source, job["source_id"])).fetchone()[0], merged)
             from . import companies_crawl
@@ -225,12 +240,14 @@ def verify_source(conn: sqlite3.Connection, source: str, *, budget: int | None =
                 closed += 1
             else:
                 errors += 1
-            conn.execute("UPDATE jobs SET detail_attempted_at=?, detail_error=? WHERE source=? AND source_id=?",
-                         (ts, str(exc)[:300], source, job["source_id"]))
+            store._retry_locked(conn, lambda: conn.execute(
+                "UPDATE jobs SET detail_attempted_at=?, detail_error=? WHERE source=? AND source_id=?",
+                (ts, str(exc)[:300], source, job["source_id"])))
             if gone:
-                conn.execute("UPDATE jobs SET status='closed',is_active=0,status_reason=?,detail_checked_at=?"
-                             " WHERE source=? AND source_id=?",
-                             (f"http_{exc.status}", ts, source, job["source_id"]))
+                store._retry_locked(conn, lambda: conn.execute(
+                    "UPDATE jobs SET status='closed',is_active=0,status_reason=?,detail_checked_at=?"
+                    " WHERE source=? AND source_id=?",
+                    (f"http_{exc.status}", ts, source, job["source_id"])))
             conn.commit()
             if isinstance(exc, SourceError) and exc.status in (403, 429):
                 break

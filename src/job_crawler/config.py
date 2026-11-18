@@ -86,8 +86,18 @@ NOTIFY_MIN_RELEVANCE = int(os.environ.get("JC_NOTIFY_MIN_RELEVANCE", "40"))
 # --- Thư mục công ty (company_directory) ------------------------------------
 ITVIEC_COMPANY_PAGES = int(os.environ.get("JC_ITVIEC_COMPANY_PAGES", "120"))
 TOPCV_SITEMAP_PAGES = int(os.environ.get("JC_TOPCV_SITEMAP_PAGES", "10"))
-COMPANY_ENRICH_BUDGET = int(os.environ.get("JC_COMPANY_ENRICH_BUDGET", "90"))
+COMPANY_ENRICH_BUDGET = int(os.environ.get("JC_COMPANY_ENRICH_BUDGET", "200"))
 JOB_DETAIL_BUDGET = int(os.environ.get("JC_JOB_DETAIL_BUDGET", "60"))
+# Detail verification: only re-check a job after this many hours. Must stay
+# below OPEN_CHECK_HOURS so open evidence never expires between checks.
+DETAIL_RECHECK_HOURS = int(os.environ.get("JC_DETAIL_RECHECK_HOURS", "18"))
+# Hourly `recheck` budgets per source. Sized for steady-state open-job volume
+# (TopCV is ~4x Itviec) at the per-host request delay.
+RECHECK_BUDGETS = {
+    "itviec": int(os.environ.get("JC_RECHECK_BUDGET_ITVIEC", "45")),
+    "topcv": int(os.environ.get("JC_RECHECK_BUDGET_TOPCV", "110")),
+    "topdev": int(os.environ.get("JC_RECHECK_BUDGET_TOPDEV", "25")),
+}
 # Ghi SQLite theo lô khi không cần Telegram từng job (deep): giảm fsync/FTS.
 COMMIT_BATCH = int(os.environ.get("JC_COMMIT_BATCH", "50"))
 OPEN_CHECK_HOURS = int(os.environ.get("JC_OPEN_CHECK_HOURS", "24"))

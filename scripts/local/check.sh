@@ -15,9 +15,16 @@ echo "═══ 1. Windmill (scheduler chính — UI: http://localhost:8132/runs
 if curl -fsS -m 4 http://localhost:8132/api/version >/dev/null 2>&1 \
    || curl -fsS -m 4 http://server:8000/api/version >/dev/null 2>&1; then
   echo "  ✓ Windmill đang chạy — crawl 9h/12h/14h/16h (topdev :00 · itviec :02 · topcv :04) · health mỗi giờ"
-  echo "    (systemd timers đã tắt — Windmill là nơi duy nhất quyết định lịch)"
 else
   echo "  ✗ Windmill KHÔNG chạy → scripts/local/windmill.sh up"
+fi
+# Hai scheduler cùng ghi SQLite = "database is locked" + alert Telegram mà
+# Windmill không thấy. Windmill phải là nơi duy nhất quyết định lịch crawl.
+dup_timers=$(systemctl --user list-unit-files 'job-crawler-*.timer' --state=enabled --no-legend 2>/dev/null | awk '{print $1}')
+if [ -n "$dup_timers" ]; then
+  mark bad "systemd timer đang bật song song Windmill: $(echo $dup_timers) → systemctl --user disable --now $dup_timers"
+else
+  echo "  ✓ systemd timers crawl/deep/companies/sync đã tắt (Windmill là scheduler duy nhất)"
 fi
 echo
 

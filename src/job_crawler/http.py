@@ -91,22 +91,22 @@ def request(source: str, url: str, *, session=None, kind: str = "page",
     if headers:
         base_headers.update(headers)
     last_error: Exception | None = None
-    for attempt in range(3):
+    for attempt in range(5):
         _bucket_for(source, url).wait()
         try:
             response = session.get(url, timeout=timeout, headers=base_headers,
                                    params=params)
         except requests.RequestsError as exc:
             last_error = SourceError(f"{source}: transport {type(exc).__name__}")
-            if attempt == 2:
+            if attempt == 4:
                 raise last_error from exc
-            time.sleep(2 ** attempt)
+            time.sleep(min(8, 2 ** attempt))
             continue
         text = response.text
         raw.preserve(source, url, text, kind=kind, status=response.status_code,
                      suffix=suffix)
         if response.status_code == 429 or response.status_code >= 500:
-            if attempt < 2:
+            if attempt < 4:
                 retry = response.headers.get("Retry-After", "")
                 try:
                     delay = float(retry)

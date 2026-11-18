@@ -49,7 +49,10 @@ def _api_page(path: str, **params) -> tuple[object, dict]:
     payload = fetch_json("topdev", config.TOPDEV_API + path, session=_S,
                          params={k: v for k, v in params.items() if v is not None})
     if isinstance(payload, dict):
-        return payload.get("data"), payload.get("meta") or {}
+        meta = payload.get("meta")
+        if not isinstance(meta, dict):
+            meta = {}
+        return payload.get("data"), meta
     return payload, {}
 
 
@@ -69,7 +72,8 @@ def _trieu(value: float, currency: str) -> float:
 
 def _salary_fields(sal: dict) -> tuple[str, float | None, float | None]:
     """min/max từ `*_filter` (số thật) vì `min`/`max` có thể bị che dạng '6******'."""
-    sal = sal or {}
+    if not isinstance(sal, dict):
+        sal = {}
     currency = (sal.get("currency") or "VND").upper()
     try:
         lo = float(sal.get("min_filter") or 0)
@@ -108,9 +112,13 @@ def _date_iso(value: str | None, *, deadline: bool = False) -> str | None:
 
 
 def _posted_fields(j: dict) -> tuple[str, str | None]:
-    published = j.get("published") or {}
-    text = (published.get("since") or "").strip()
-    exact = _date_iso(published.get("date"))
+    published = j.get("published")
+    if isinstance(published, dict):
+        text = (published.get("since") or "").strip()
+        exact = _date_iso(published.get("date"))
+    else:
+        text = str(published or "").strip()
+        exact = _date_iso(published if isinstance(published, str) else None)
     if exact:
         return text, exact
     return text, _posted_iso(text)
@@ -150,17 +158,33 @@ def _work_mode(j: dict, city: str) -> str:
 
 
 def _city(j: dict) -> str:
-    addr = j.get("addresses") or {}
-    return (addr.get("address_region_list")
-            or ", ".join(addr.get("address_region_array") or []))
+    addr = j.get("addresses")
+    if isinstance(addr, dict):
+        return (addr.get("address_region_list")
+                or ", ".join(addr.get("address_region_array") or []))
+    if isinstance(addr, str):
+        return addr
+    return ""
 
+
+
+def _expires_date(value) -> str | None:
+    if isinstance(value, dict):
+        return value.get("date")
+    if isinstance(value, str):
+        return value
+    return None
 
 def map_job(j: dict) -> dict:
     """1 object job của API → bản ghi canonical (cùng shape 3 nguồn)."""
     jid = str(j.get("id") or "")
     title = (j.get("title") or "").strip()
-    company = j.get("company") or {}
-    salary_text, sal_min, sal_max = _salary_fields(j.get("salary") or {})
+    company_raw = j.get("company")
+    if isinstance(company_raw, dict):
+        company = company_raw
+    else:
+        company = {"display_name": str(company_raw or "").strip()}
+    salary_text, sal_min, sal_max = _salary_fields(j.get("salary"))
     exp_text, exp_min = _exp_fields(j)
     posted_text, posted_at = _posted_fields(j)
     city = _city(j)
@@ -190,7 +214,7 @@ def map_job(j: dict) -> dict:
         "salary_max": sal_max,
         "posted_text": posted_text,
         "posted_at": posted_at,
-        "valid_through": _date_iso((j.get("expires") or {}).get("date"), deadline=True),
+        "valid_through": _date_iso(_expires_date(j.get("expires")), deadline=True),
     }
 
 
@@ -266,14 +290,15 @@ def fetch_detail(job: dict) -> dict:
         raise ValueError(f"TopDev detail for {jid} is empty")
     status = str(data.get("status_display") or "").lower()
     closed = status in {"closed", "expired", "removed", "deleted"}
-    expires = _date_iso((data.get("expires") or {}).get("date"), deadline=True)
+    expires = _date_iso(_expires_date(data.get("expires")), deadline=True)
     if expires and datetime.fromisoformat(expires) < datetime.now().astimezone():
         closed = True
     description = (data.get("content") or "").strip()
     requirements = _join_sections(data.get("requirements_arr"), data.get("requirements_original"))
     responsibilities = _join_sections(data.get("responsibilities"), data.get("responsibilities_original"))
     benefits = "\n".join(
-        part for part in ((b or {}).get("description") for b in (data.get("benefits_v2") or []))
+        part for part in ((_b.get("description") if isinstance(_b, dict) else _b)
+                          for _b in (data.get("benefits_v2") or []))
         if part
     )
     body = "\n".join(p for p in (description, responsibilities, requirements) if p)

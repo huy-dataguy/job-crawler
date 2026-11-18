@@ -50,7 +50,10 @@ SCRIPTS = {
     "sync_supabase": ("Sync SQLite → Supabase (production Vercel)",
                       "timeout 280 .venv/bin/python scripts/sync_supabase.py 2>&1"),
     "companies": ("Làm giàu danh bạ công ty",
+                  'JC_COMPANY_ENRICH_BUDGET="${JC_COMPANY_ENRICH_BUDGET:-200}" '
                   ".venv/bin/job-crawler companies 2>&1"),
+    "verify_open": ("Recheck open-state định kỳ giữ detail_checked_at tươi",
+                    ".venv/bin/job-crawler recheck 2>&1"),
     "health": ("Watchdog: pipeline chết/treo/lỗi → Telegram",
                ".venv/bin/job-crawler health 2>&1"),
     "check": ("Kiểm tra sức khoẻ cả chuỗi (windmill→cloud)",
@@ -72,6 +75,10 @@ SCHEDULES = [
     ("companies_am", "companies", "0 25 6 * * *"),
     ("companies_pm", "companies", "0 25 18 * * *"),
     ("sync_hour", "sync_supabase", "0 20 * * * *"),
+    # Open-state recheck mỗi giờ: deep chỉ 1 lượt/ngày nên không đủ giữ 1.6k
+    # job TopCV trong cửa sổ OPEN_CHECK_HOURS. :35 né crawl (:00-:04), sync
+    # (:20) và health (:45).
+    ("verify_open", "verify_open", "0 35 * * * *"),
     ("health_hour", "health", "0 45 * * * *"),
 ]
 # Schedule cũ (crawl_all 15') không còn dùng — tắt nếu workspace đã có.

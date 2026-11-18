@@ -79,10 +79,42 @@ CREATE VIRTUAL TABLE IF NOT EXISTS jobs_fts USING fts5(
 """
 
 
+def _connect(db_path: Path) -> sqlite3.Connection:
+    """One SQLite connection with the busy policy applied before any statement.
+
+    Windmill runs several source pipelines at once against the same file. WAL
+    lets them share it, but a writer must be able to wait out another writer
+    instead of failing with "database is locked".
+    """
+    conn = sqlite3.connect(db_path, timeout=60)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=60000")
+    return conn
+
+
+def _retry_locked(conn: sqlite3.Connection, operation, *, attempts: int = 8):
+    """Run a write operation, retrying while SQLite reports a locked database.
+
+    busy_timeout already covers plain contention; this also covers the
+    BUSY/SNAPSHOT case where a deferred transaction cannot be upgraded.
+    """
+    import time
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except sqlite3.OperationalError as exc:
+            conn.rollback()
+            last = exc
+            if "locked" not in str(exc).lower() or attempt == attempts - 1:
+                raise
+            time.sleep(min(2.0, 0.25 * (attempt + 1)))
+    raise last  # type: ignore[misc]
+
+
 def _initialize_schema(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path, timeout=30)
-    conn.row_factory = sqlite3.Row
+    conn = _connect(db_path)
     conn.executescript(_SCHEMA_TABLES)
     # Migration nhẹ cho DB cũ: thêm cột mới nếu thiếu (phải trước index/FTS)
     cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
@@ -139,6 +171,7 @@ def _initialize_schema(db_path: Path) -> sqlite3.Connection:
         conn.execute(
             "INSERT INTO jobs_fts(rowid, title, company, category, tags, skills)"
             " SELECT rowid, title, company, category, tags, skills FROM jobs")
+    conn.execute("PRAGMA busy_timeout=60000")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.commit()
     return conn
@@ -149,11 +182,21 @@ def connect(db_path: Path) -> sqlite3.Connection:
     if not db_path.exists():
         from .migrations import migrate
         migrate(db_path)
-    conn = sqlite3.connect(db_path, timeout=30)
-    conn.row_factory = sqlite3.Row
+    conn = _connect(db_path)
     if conn.execute("PRAGMA user_version").fetchone()[0] < 2:
         conn.close()
         raise RuntimeError("Schema migration required: job-crawler migrate")
+    # WAL is what lets the per-source writers coexist; re-assert it for DBs
+    # created before this guard or whose mode drifted back to delete.
+    import time
+    for _ in range(5):
+        try:
+            if conn.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.commit()
+            break
+        except sqlite3.OperationalError:
+            time.sleep(0.2)
     return conn
 
 
@@ -218,24 +261,28 @@ def upsert_job(conn: sqlite3.Connection, job: dict) -> str:
 
 
 def start_run(conn: sqlite3.Connection, source: str) -> int:
-    conn.execute("UPDATE crawl_runs SET finished_at=?,status='interrupted',note='previous process stopped before completion'"
-                 " WHERE source=? AND finished_at IS NULL", (now_iso(), source))
-    cur = conn.execute(
-        "INSERT INTO crawl_runs (source, started_at) VALUES (?, ?)",
-        (source, now_iso()),
-    )
-    conn.commit()
-    return int(cur.lastrowid)
+    def operation() -> int:
+        conn.execute("UPDATE crawl_runs SET finished_at=?,status='interrupted',note='previous process stopped before completion'"
+                     " WHERE source=? AND finished_at IS NULL", (now_iso(), source))
+        cur = conn.execute(
+            "INSERT INTO crawl_runs (source, started_at) VALUES (?, ?)",
+            (source, now_iso()),
+        )
+        conn.commit()
+        return int(cur.lastrowid)
+    return _retry_locked(conn, operation)
 
 
 def finish_run(conn: sqlite3.Connection, run_id: int, *, status: str, pages: int,
                found: int, new_count: int, updated_count: int, note: str = "") -> None:
-    conn.execute(
-        """UPDATE crawl_runs SET finished_at=?, status=?, pages=?, found=?,
-             new_count=?, updated_count=?, note=? WHERE id=?""",
-        (now_iso(), status, pages, found, new_count, updated_count, note, run_id),
-    )
-    conn.commit()
+    def operation() -> None:
+        conn.execute(
+            """UPDATE crawl_runs SET finished_at=?, status=?, pages=?, found=?,
+                 new_count=?, updated_count=?, note=? WHERE id=?""",
+            (now_iso(), status, pages, found, new_count, updated_count, note, run_id),
+        )
+        conn.commit()
+    _retry_locked(conn, operation)
 
 
 def prune(conn: sqlite3.Connection, *, keep_days: int, stale_days: int) -> int:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 from bs4 import BeautifulSoup
 from curl_cffi import requests as curl_requests
@@ -21,6 +22,7 @@ from .itviec import _posted_iso
 
 _IMPERSONATE_CHAIN: tuple[str, ...] = ("chrome136", "safari184", "chrome124")
 _sticky_profile: str = "chrome136"
+_profile_idx: int = 0
 _sessions: dict[str, curl_requests.Session] = {}
 _warmed = False
 
@@ -32,14 +34,18 @@ def _get_session(profile: str | None = None) -> curl_requests.Session:
     return _sessions[p]
 
 
-def _warm() -> None:
-    """Một lần/process: lấy cookie hợp lệ trước khi vào listing."""
-    global _warmed, _sticky_profile
-    if _warmed:
+def _warm(force: bool = False) -> None:
+    """Lấy cookie hợp lệ trước khi vào listing; force=True xoay profile khi bị challenge."""
+    global _warmed, _sticky_profile, _profile_idx
+    if _warmed and not force:
         return
-    for profile in _IMPERSONATE_CHAIN:
+    start = _profile_idx if not force else (_profile_idx + 1) % len(_IMPERSONATE_CHAIN)
+    for offset in range(len(_IMPERSONATE_CHAIN)):
+        idx = (start + offset) % len(_IMPERSONATE_CHAIN)
+        profile = _IMPERSONATE_CHAIN[idx]
         if warm_up("topcv", "https://www.topcv.vn/", session=_get_session(profile)):
             _sticky_profile = profile
+            _profile_idx = idx
             _warmed = True
             return
     _warmed = True  # vẫn thử listing: warm-up lỗi không được chặn crawl
@@ -50,12 +56,23 @@ def fetch_html(
     expect: tuple[str, ...] = (),
     timeout: float = 30,
 ) -> str:
-    """Fetch one public page with the sticky session (no cookie-destroying rotation)."""
+    """Fetch one public page with the sticky session; rotate profile on challenge."""
     _warm()
-    html = fetch("topcv", url, session=_get_session(), timeout=timeout)
-    if expect and not all(tok in html for tok in expect):
-        raise SourceError(f"TopCV page missing {expect}: markup drifted")
-    return html
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            html = fetch("topcv", url, session=_get_session(), timeout=timeout)
+            if expect and not all(tok in html for tok in expect):
+                raise SourceError(f"TopCV page missing {expect}: markup drifted")
+            return html
+        except SourceError as exc:
+            last_exc = exc
+            if exc.status == 403 and attempt < 2:
+                _warm(force=True)
+                time.sleep(2 ** attempt + 1)
+                continue
+            raise
+    raise last_exc  # type: ignore[misc]
 
 
 def _fetch_listing(url: str) -> str:
@@ -211,3 +228,10 @@ def crawl(max_pages: int | None = None) -> tuple[list[dict], int]:
             sample_missing=["div.job-item-search-result"])
     drift.ensure("topcv", jobs)
     return jobs, pages
+
+
+def fetch_detail(job: dict) -> dict:
+    """Detail TopCV qua session đã warm-up (tránh 403 Cloudflare)."""
+    from .details import parse_detail
+    html = fetch_html(job["url"], timeout=40)
+    return parse_detail(html, job)

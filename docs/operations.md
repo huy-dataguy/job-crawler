@@ -4,6 +4,13 @@ Chi tiết kỹ thuật cho người vận hành — README chỉ giữ phần d
 
 ## Lịch chạy (Windmill, timezone Asia/Ho_Chi_Minh)
 
+**Windmill là scheduler DUY NHẤT.** systemd chỉ chạy dashboard. Các unit
+`job-crawler-{crawl,deep,companies,sync}.timer` trong `scripts/local/` chỉ còn
+để tham khảo và **phải luôn disabled**: chạy song song sẽ ghi cùng SQLite →
+`database is locked`, đồng thời sinh alert Telegram từ tiến trình mà Windmill
+không quản lý (Windmill vẫn xanh). `scripts/local/check.sh` sẽ báo lỗi nếu phát
+hiện timer nào bị bật lại.
+
 Mỗi sàn là **một pipeline riêng** (`crawl_itviec`, `crawl_topcv`, `crawl_topdev`)
 để xem log / retry / tắt độc lập trên Windmill. Lệch phút để không tranh lock.
 
@@ -18,6 +25,7 @@ Mỗi sàn là **một pipeline riêng** (`crawl_itviec`, `crawl_topcv`, `crawl_
 | companies_am | `0 25 6 * * *` | companies | Harvest + enrich danh bạ (sáng) |
 | companies_pm | `0 25 18 * * *` | companies | Harvest + enrich danh bạ (tối) |
 | sync_hour | `0 20 * * * *` | sync_supabase | Đẩy SQLite → Supabase mỗi giờ |
+| verify_open | `0 35 * * * *` | verify_open | Recheck open-state mỗi giờ (xem dưới) |
 | health_hour | `0 45 * * * *` | health | Watchdog: lỗi/treo/không chạy → Telegram |
 
 Có `no_flow_overlap` chống chồng chéo. Windmill không chạy bù nhịp lỡ; mốc đầu
@@ -41,6 +49,9 @@ bash ở native mode.
 | JC_RAW_SWEEP_MINUTES | 15 | Giãn cách tối thiểu giữa 2 lần quét raw |
 | JC_JOB_DETAIL_BUDGET | 60 | Chi tiết tối đa mỗi nguồn/lượt deep |
 | JC_QUICK_DETAIL_BUDGET | 15 | (script/provision) map sang `JC_JOB_DETAIL_BUDGET` cho lượt quick |
+| JC_DETAIL_RECHECK_HOURS | 18 | Chỉ recheck chi tiết sau X giờ (phải < `JC_OPEN_CHECK_HOURS=24`) |
+| JC_RECHECK_BUDGET_ITVIEC/TOPCV/TOPDEV | 45/110/25 | Budget mỗi lượt `verify_open` (mỗi giờ) |
+| JC_COMPANY_ENRICH_BUDGET | 200 | Hồ sơ công ty làm giàu mỗi lượt (trước 90) |
 | JC_COMMIT_BATCH | 50 | Số job/lần commit khi không cần Telegram từng job |
 | JC_COMPANY_ENRICH_BUDGET | 90 | Hồ sơ làm giàu mỗi lượt |
 | JC_PIPELINE_STALE_MINUTES | 1080 | Không có lượt OK trong X phút → cảnh báo (18h, hợp lịch 4 lượt/ngày) |
@@ -92,7 +103,8 @@ bash ở native mode.
 
 | Triệu chứng | Nguyên nhân | Xử lý |
 | --- | --- | --- |
-| Windmill runs FAIL "another writer" | 2 scheduler cùng chạy | Tắt systemd timers; chỉ 1 scheduler |
+| Windmill runs FAIL "another writer" / "database is locked" | 2 scheduler cùng chạy (Windmill + systemd timers) | `systemctl --user disable --now job-crawler-{crawl,deep,companies,sync}.timer`; chỉ Windmill |
+| Telegram báo lỗi nhưng lịch sử Windmill toàn xanh | Lỗi đến từ systemd timer chạy ngoài Windmill | Tắt timer như trên; đối chiếu `journalctl --user -u job-crawler-crawl -n 50` |
 | TopDev "no jobs" nhiều nhịp | Site đổi markup | Xem `journalctl`/logs, sửa parser `topdev.py` |
 | Web production đứng data | Máy nhà tắt / sync lỗi | `scripts/local/check.sh`; bật Windmill |
 | Login web bị từ chối | Sai email ALLOWED_EMAIL | Kiểm tra `.env` + Vercel env |
